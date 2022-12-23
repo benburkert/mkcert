@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package truststore
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 var (
@@ -28,33 +29,47 @@ var (
 	storePass   string = "changeit"
 )
 
-func init() {
-	if runtime.GOOS == "windows" {
-		keytoolPath = filepath.Join("bin", "keytool.exe")
-	} else {
-		keytoolPath = filepath.Join("bin", "keytool")
-	}
+var initJavaOnce sync.Once
 
-	if v := os.Getenv("JAVA_HOME"); v != "" {
-		hasJava = true
-		javaHome = v
-
-		if pathExists(filepath.Join(v, keytoolPath)) {
-			hasKeytool = true
-			keytoolPath = filepath.Join(v, keytoolPath)
+func (s *Store) InitJava() {
+	initJavaOnce.Do(func() {
+		if runtime.GOOS == "windows" {
+			keytoolPath = filepath.Join("bin", "keytool.exe")
+		} else {
+			keytoolPath = filepath.Join("bin", "keytool")
 		}
 
-		if pathExists(filepath.Join(v, "lib", "security", "cacerts")) {
-			cacertsPath = filepath.Join(v, "lib", "security", "cacerts")
-		}
+		if v := os.Getenv("JAVA_HOME"); v != "" {
+			hasJava = true
+			javaHome = v
 
-		if pathExists(filepath.Join(v, "jre", "lib", "security", "cacerts")) {
-			cacertsPath = filepath.Join(v, "jre", "lib", "security", "cacerts")
+			if s.PathExists(filepath.Join(v, keytoolPath)) {
+				hasKeytool = true
+				keytoolPath = filepath.Join(v, keytoolPath)
+			}
+
+			if s.PathExists(filepath.Join(v, "lib", "security", "cacerts")) {
+				cacertsPath = filepath.Join(v, "lib", "security", "cacerts")
+			}
+
+			if s.PathExists(filepath.Join(v, "jre", "lib", "security", "cacerts")) {
+				cacertsPath = filepath.Join(v, "jre", "lib", "security", "cacerts")
+			}
 		}
-	}
+	})
 }
 
-func (m *mkcert) checkJava() bool {
+func (s *Store) HasJava() bool {
+	s.InitJava()
+	return hasJava
+}
+
+func (s *Store) HasKeytool() bool {
+	s.InitJava()
+	return hasKeytool
+}
+
+func (s *Store) CheckJava(caCert *x509.Certificate) bool {
 	if !hasKeytool {
 		return false
 	}
@@ -68,50 +83,50 @@ func (m *mkcert) checkJava() bool {
 	}
 
 	keytoolOutput, err := exec.Command(keytoolPath, "-list", "-keystore", cacertsPath, "-storepass", storePass).CombinedOutput()
-	fatalIfCmdErr(err, "keytool -list", keytoolOutput)
+	s.fatalIfCmdErr(err, "keytool -list", keytoolOutput)
 	// keytool outputs SHA1 and SHA256 (Java 9+) certificates in uppercase hex
 	// with each octet pair delimitated by ":". Drop them from the keytool output
 	keytoolOutput = bytes.Replace(keytoolOutput, []byte(":"), nil, -1)
 
 	// pre-Java 9 uses SHA1 fingerprints
 	s1, s256 := sha1.New(), sha256.New()
-	return exists(m.caCert, s1, keytoolOutput) || exists(m.caCert, s256, keytoolOutput)
+	return exists(caCert, s1, keytoolOutput) || exists(caCert, s256, keytoolOutput)
 }
 
-func (m *mkcert) installJava() {
+func (s *Store) InstallJava(caCert *x509.Certificate) {
 	args := []string{
 		"-importcert", "-noprompt",
 		"-keystore", cacertsPath,
 		"-storepass", storePass,
-		"-file", filepath.Join(m.CAROOT, rootName),
-		"-alias", m.caUniqueName(),
+		"-file", filepath.Join(s.CAROOT, s.RootName),
+		"-alias", s.CAUniqueName(caCert),
 	}
 
-	out, err := execKeytool(exec.Command(keytoolPath, args...))
-	fatalIfCmdErr(err, "keytool -importcert", out)
+	out, err := s.execKeytool(exec.Command(keytoolPath, args...))
+	s.fatalIfCmdErr(err, "keytool -importcert", out)
 }
 
-func (m *mkcert) uninstallJava() {
+func (s *Store) UninstallJava(caCert *x509.Certificate) {
 	args := []string{
 		"-delete",
-		"-alias", m.caUniqueName(),
+		"-alias", s.CAUniqueName(caCert),
 		"-keystore", cacertsPath,
 		"-storepass", storePass,
 	}
-	out, err := execKeytool(exec.Command(keytoolPath, args...))
+	out, err := s.execKeytool(exec.Command(keytoolPath, args...))
 	if bytes.Contains(out, []byte("does not exist")) {
 		return // cert didn't exist
 	}
-	fatalIfCmdErr(err, "keytool -delete", out)
+	s.fatalIfCmdErr(err, "keytool -delete", out)
 }
 
 // execKeytool will execute a "keytool" command and if needed re-execute
 // the command with commandWithSudo to work around file permissions.
-func execKeytool(cmd *exec.Cmd) ([]byte, error) {
+func (s *Store) execKeytool(cmd *exec.Cmd) ([]byte, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil && bytes.Contains(out, []byte("java.io.FileNotFoundException")) && runtime.GOOS != "windows" {
 		origArgs := cmd.Args[1:]
-		cmd = commandWithSudo(cmd.Path)
+		cmd = s.CommandWithSudo(cmd.Path)
 		cmd.Args = append(cmd.Args, origArgs...)
 		cmd.Env = []string{
 			"JAVA_HOME=" + javaHome,

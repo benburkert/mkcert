@@ -25,6 +25,8 @@ import (
 	"sync"
 
 	"golang.org/x/net/idna"
+
+	"filippo.io/mkcert/truststore"
 )
 
 const shortUsage = `Usage of mkcert:
@@ -143,6 +145,18 @@ func main() {
 		log.Fatalln("ERROR: can't specify extra arguments when using -csr")
 	}
 	(&mkcert{
+		Store: &truststore.Store{
+			CAROOT:   getCAROOT(),
+			RootName: rootName,
+
+			CAUniqueName:    caUniqueName,
+			CommandWithSudo: commandWithSudo,
+			Fatalf:          log.Fatalf,
+
+			PathExists:   pathExists,
+			BinaryExists: binaryExists,
+		},
+
 		installMode: *installFlag, uninstallMode: *uninstallFlag, csrPath: *csrFlag,
 		pkcs12: *pkcs12Flag, ecdsa: *ecdsaFlag, client: *clientFlag,
 		certFile: *certFileFlag, keyFile: *keyFileFlag, p12File: *p12FileFlag,
@@ -153,6 +167,8 @@ const rootName = "rootCA.pem"
 const rootKeyName = "rootCA-key.pem"
 
 type mkcert struct {
+	*truststore.Store
+
 	installMode, uninstallMode bool
 	pkcs12, ecdsa, client      bool
 	keyFile, certFile, p12File string
@@ -190,11 +206,11 @@ func (m *mkcert) Run(args []string) {
 			warning = true
 			log.Println("Note: the local CA is not installed in the system trust store.")
 		}
-		if storeEnabled("nss") && hasNSS && CertutilInstallHelp != "" && !m.checkNSS() {
+		if storeEnabled("nss") && m.HasNSS() && truststore.CertutilInstallHelp != "" && !m.CheckNSS(m.caCert) {
 			warning = true
-			log.Printf("Note: the local CA is not installed in the %s trust store.", NSSBrowsers)
+			log.Printf("Note: the local CA is not installed in the %s trust store.", truststore.NSSBrowsers)
 		}
-		if storeEnabled("java") && hasJava && !m.checkJava() {
+		if storeEnabled("java") && m.HasJava() && !m.CheckJava(m.caCert) {
 			warning = true
 			log.Println("Note: the local CA is not installed in the Java trust store.")
 		}
@@ -269,32 +285,32 @@ func (m *mkcert) install() {
 		if m.checkPlatform() {
 			log.Print("The local CA is already installed in the system trust store! 👍")
 		} else {
-			if m.installPlatform() {
+			if m.InstallPlatform(m.caCert) {
 				log.Print("The local CA is now installed in the system trust store! ⚡️")
 			}
 			m.ignoreCheckFailure = true // TODO: replace with a check for a successful install
 		}
 	}
-	if storeEnabled("nss") && hasNSS {
-		if m.checkNSS() {
-			log.Printf("The local CA is already installed in the %s trust store! 👍", NSSBrowsers)
+	if storeEnabled("nss") && m.HasNSS() {
+		if m.CheckNSS(m.caCert) {
+			log.Printf("The local CA is already installed in the %s trust store! 👍", truststore.NSSBrowsers)
 		} else {
-			if hasCertutil && m.installNSS() {
-				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", NSSBrowsers)
-			} else if CertutilInstallHelp == "" {
-				log.Printf(`Note: %s support is not available on your platform. ℹ️`, NSSBrowsers)
-			} else if !hasCertutil {
-				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, NSSBrowsers)
-				log.Printf(`Install "certutil" with "%s" and re-run "mkcert -install" 👈`, CertutilInstallHelp)
+			if m.HasCertutil() && m.InstallNSS(m.caCert) {
+				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", truststore.NSSBrowsers)
+			} else if truststore.CertutilInstallHelp == "" {
+				log.Printf(`Note: %s support is not available on your platform. ℹ️`, truststore.NSSBrowsers)
+			} else if !m.HasCertutil() {
+				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, truststore.NSSBrowsers)
+				log.Printf(`Install "certutil" with "%s" and re-run "mkcert -install" 👈`, truststore.CertutilInstallHelp)
 			}
 		}
 	}
-	if storeEnabled("java") && hasJava {
-		if m.checkJava() {
+	if storeEnabled("java") && m.HasJava() {
+		if m.CheckJava(m.caCert) {
 			log.Println("The local CA is already installed in Java's trust store! 👍")
 		} else {
-			if hasKeytool {
-				m.installJava()
+			if m.HasKeytool() {
+				m.InstallJava(m.caCert)
 				log.Println("The local CA is now installed in Java's trust store! ☕️")
 			} else {
 				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically installed in Java's trust store! ⚠️`)
@@ -305,30 +321,30 @@ func (m *mkcert) install() {
 }
 
 func (m *mkcert) uninstall() {
-	if storeEnabled("nss") && hasNSS {
-		if hasCertutil {
-			m.uninstallNSS()
-		} else if CertutilInstallHelp != "" {
+	if storeEnabled("nss") && m.HasNSS() {
+		if m.HasCertutil() {
+			m.UninstallNSS(m.caCert)
+		} else if truststore.CertutilInstallHelp != "" {
 			log.Print("")
-			log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, NSSBrowsers)
-			log.Printf(`You can install "certutil" with "%s" and re-run "mkcert -uninstall" 👈`, CertutilInstallHelp)
+			log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, truststore.NSSBrowsers)
+			log.Printf(`You can install "certutil" with "%s" and re-run "mkcert -uninstall" 👈`, truststore.CertutilInstallHelp)
 			log.Print("")
 		}
 	}
-	if storeEnabled("java") && hasJava {
-		if hasKeytool {
-			m.uninstallJava()
+	if storeEnabled("java") && m.HasJava() {
+		if m.HasKeytool() {
+			m.UninstallJava(m.caCert)
 		} else {
 			log.Print("")
 			log.Println(`Warning: "keytool" is not available, so the CA can't be automatically uninstalled from Java's trust store (if it was ever installed)! ⚠️`)
 			log.Print("")
 		}
 	}
-	if storeEnabled("system") && m.uninstallPlatform() {
+	if storeEnabled("system") && m.UninstallPlatform(m.caCert) {
 		log.Print("The local CA is now uninstalled from the system trust store(s)! 👋")
 		log.Print("")
-	} else if storeEnabled("nss") && hasCertutil {
-		log.Printf("The local CA is now uninstalled from the %s trust store(s)! 👋", NSSBrowsers)
+	} else if storeEnabled("nss") && m.HasCertutil() {
+		log.Printf("The local CA is now uninstalled from the %s trust store(s)! 👋", truststore.NSSBrowsers)
 		log.Print("")
 	}
 }

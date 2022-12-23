@@ -363,6 +363,6 @@ func (m *mkcert) newCA() {
 	log.Printf("Created a new local CA 💥\n")
 }
 
-func (m *mkcert) caUniqueName() string {
-	return "mkcert development CA " + m.caCert.SerialNumber.String()
+func caUniqueName(caCert *x509.Certificate) string {
+	return "mkcert development CA " + caCert.SerialNumber.String()
 }

@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package truststore
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/asn1"
 	"io/ioutil"
 	"log"
@@ -49,29 +50,31 @@ var trustSettingsData = []byte(`
 </array>
 `)
 
-func (m *mkcert) installPlatform() bool {
-	cmd := commandWithSudo("security", "add-trusted-cert", "-d", "-k", "/Library/Keychains/System.keychain", filepath.Join(m.CAROOT, rootName))
+func (s *Store) InitPlatform() {}
+
+func (s *Store) InstallPlatform(caCert *x509.Certificate) bool {
+	cmd := s.CommandWithSudo("security", "add-trusted-cert", "-d", "-k", "/Library/Keychains/System.keychain", filepath.Join(s.CAROOT, s.RootName))
 	out, err := cmd.CombinedOutput()
-	fatalIfCmdErr(err, "security add-trusted-cert", out)
+	s.fatalIfCmdErr(err, "security add-trusted-cert", out)
 
 	// Make trustSettings explicit, as older Go does not know the defaults.
 	// https://github.com/golang/go/issues/24652
 
 	plistFile, err := ioutil.TempFile("", "trust-settings")
-	fatalIfErr(err, "failed to create temp file")
+	s.fatalIfErr(err, "failed to create temp file")
 	defer os.Remove(plistFile.Name())
 
-	cmd = commandWithSudo("security", "trust-settings-export", "-d", plistFile.Name())
+	cmd = s.CommandWithSudo("security", "trust-settings-export", "-d", plistFile.Name())
 	out, err = cmd.CombinedOutput()
-	fatalIfCmdErr(err, "security trust-settings-export", out)
+	s.fatalIfCmdErr(err, "security trust-settings-export", out)
 
 	plistData, err := ioutil.ReadFile(plistFile.Name())
-	fatalIfErr(err, "failed to read trust settings")
+	s.fatalIfErr(err, "failed to read trust settings")
 	var plistRoot map[string]interface{}
 	_, err = plist.Unmarshal(plistData, &plistRoot)
-	fatalIfErr(err, "failed to parse trust settings")
+	s.fatalIfErr(err, "failed to parse trust settings")
 
-	rootSubjectASN1, _ := asn1.Marshal(m.caCert.Subject.ToRDNSequence())
+	rootSubjectASN1, _ := asn1.Marshal(caCert.Subject.ToRDNSequence())
 
 	if plistRoot["trustVersion"].(uint64) != 1 {
 		log.Fatalln("ERROR: unsupported trust settings version:", plistRoot["trustVersion"])
@@ -91,21 +94,21 @@ func (m *mkcert) installPlatform() bool {
 	}
 
 	plistData, err = plist.MarshalIndent(plistRoot, plist.XMLFormat, "\t")
-	fatalIfErr(err, "failed to serialize trust settings")
+	s.fatalIfErr(err, "failed to serialize trust settings")
 	err = ioutil.WriteFile(plistFile.Name(), plistData, 0600)
-	fatalIfErr(err, "failed to write trust settings")
+	s.fatalIfErr(err, "failed to write trust settings")
 
-	cmd = commandWithSudo("security", "trust-settings-import", "-d", plistFile.Name())
+	cmd = s.CommandWithSudo("security", "trust-settings-import", "-d", plistFile.Name())
 	out, err = cmd.CombinedOutput()
-	fatalIfCmdErr(err, "security trust-settings-import", out)
+	s.fatalIfCmdErr(err, "security trust-settings-import", out)
 
 	return true
 }
 
-func (m *mkcert) uninstallPlatform() bool {
-	cmd := commandWithSudo("security", "remove-trusted-cert", "-d", filepath.Join(m.CAROOT, rootName))
+func (s *Store) UninstallPlatform(caCert *x509.Certificate) bool {
+	cmd := s.CommandWithSudo("security", "remove-trusted-cert", "-d", filepath.Join(s.CAROOT, s.RootName))
 	out, err := cmd.CombinedOutput()
-	fatalIfCmdErr(err, "security remove-trusted-cert", out)
+	s.fatalIfCmdErr(err, "security remove-trusted-cert", out)
 
 	return true
 }

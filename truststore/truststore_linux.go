@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package truststore
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -24,76 +25,80 @@ var (
 	CertutilInstallHelp string
 )
 
-func init() {
+func (s *Store) InitPlatform() {
 	switch {
-	case binaryExists("apt"):
+	case s.BinaryExists("apt"):
 		CertutilInstallHelp = "apt install libnss3-tools"
-	case binaryExists("yum"):
+	case s.BinaryExists("yum"):
 		CertutilInstallHelp = "yum install nss-tools"
-	case binaryExists("zypper"):
+	case s.BinaryExists("zypper"):
 		CertutilInstallHelp = "zypper install mozilla-nss-tools"
 	}
-	if pathExists("/etc/pki/ca-trust/source/anchors/") {
+	if s.PathExists("/etc/pki/ca-trust/source/anchors/") {
 		SystemTrustFilename = "/etc/pki/ca-trust/source/anchors/%s.pem"
 		SystemTrustCommand = []string{"update-ca-trust", "extract"}
-	} else if pathExists("/usr/local/share/ca-certificates/") {
+	} else if s.PathExists("/usr/local/share/ca-certificates/") {
 		SystemTrustFilename = "/usr/local/share/ca-certificates/%s.crt"
 		SystemTrustCommand = []string{"update-ca-certificates"}
-	} else if pathExists("/etc/ca-certificates/trust-source/anchors/") {
+	} else if s.PathExists("/etc/ca-certificates/trust-source/anchors/") {
 		SystemTrustFilename = "/etc/ca-certificates/trust-source/anchors/%s.crt"
 		SystemTrustCommand = []string{"trust", "extract-compat"}
-	} else if pathExists("/usr/share/pki/trust/anchors") {
+	} else if s.PathExists("/usr/share/pki/trust/anchors") {
 		SystemTrustFilename = "/usr/share/pki/trust/anchors/%s.pem"
 		SystemTrustCommand = []string{"update-ca-certificates"}
 	}
 }
 
-func (m *mkcert) systemTrustFilename() string {
-	return fmt.Sprintf(SystemTrustFilename, strings.Replace(m.caUniqueName(), " ", "_", -1))
+func (s *Store) systemTrustFilename(caCert *x509.Certificate) string {
+	return fmt.Sprintf(SystemTrustFilename, strings.Replace(s.CAUniqueName(caCert), " ", "_", -1))
 }
 
-func (m *mkcert) installPlatform() bool {
+func (s *Store) InstallPlatform(caCert *x509.Certificate) bool {
+	s.InitPlatform()
+
 	if SystemTrustCommand == nil {
 		log.Printf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.", NSSBrowsers)
-		log.Printf("You can also manually install the root certificate at %q.", filepath.Join(m.CAROOT, rootName))
+		log.Printf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, s.RootName))
 		return false
 	}
 
-	cert, err := ioutil.ReadFile(filepath.Join(m.CAROOT, rootName))
-	fatalIfErr(err, "failed to read root certificate")
+	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, s.RootName))
+	s.fatalIfErr(err, "failed to read root certificate")
 
-	cmd := commandWithSudo("tee", m.systemTrustFilename())
+	cmd := s.CommandWithSudo("tee", s.systemTrustFilename(caCert))
 	cmd.Stdin = bytes.NewReader(cert)
 	out, err := cmd.CombinedOutput()
-	fatalIfCmdErr(err, "tee", out)
+	s.fatalIfCmdErr(err, "tee", out)
 
-	cmd = commandWithSudo(SystemTrustCommand...)
+	cmd = s.CommandWithSudo(SystemTrustCommand...)
 	out, err = cmd.CombinedOutput()
-	fatalIfCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
+	s.fatalIfCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
 
 	return true
 }
 
-func (m *mkcert) uninstallPlatform() bool {
+func (s *Store) UninstallPlatform(caCert *x509.Certificate) bool {
+	s.InitPlatform()
+
 	if SystemTrustCommand == nil {
 		return false
 	}
 
-	cmd := commandWithSudo("rm", "-f", m.systemTrustFilename())
+	cmd := s.CommandWithSudo("rm", "-f", s.systemTrustFilename(caCert))
 	out, err := cmd.CombinedOutput()
-	fatalIfCmdErr(err, "rm", out)
+	s.fatalIfCmdErr(err, "rm", out)
 
 	// We used to install under non-unique filenames.
 	legacyFilename := fmt.Sprintf(SystemTrustFilename, "mkcert-rootCA")
-	if pathExists(legacyFilename) {
-		cmd := commandWithSudo("rm", "-f", legacyFilename)
+	if s.PathExists(legacyFilename) {
+		cmd := s.CommandWithSudo("rm", "-f", legacyFilename)
 		out, err := cmd.CombinedOutput()
-		fatalIfCmdErr(err, "rm (legacy filename)", out)
+		s.fatalIfCmdErr(err, "rm (legacy filename)", out)
 	}
 
-	cmd = commandWithSudo(SystemTrustCommand...)
+	cmd = s.CommandWithSudo(SystemTrustCommand...)
 	out, err = cmd.CombinedOutput()
-	fatalIfCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
+	s.fatalIfCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
 
 	return true
 }
