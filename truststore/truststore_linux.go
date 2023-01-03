@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,9 +56,9 @@ func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 	s.InitPlatform()
 
 	if SystemTrustCommand == nil {
-		log.Printf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.", NSSBrowsers)
-		log.Printf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, s.RootName))
-		return false, nil
+		msg := fmt.Sprintf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.\n", NSSBrowsers)
+		msg += fmt.Sprintf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, s.RootName))
+		return false, warnErr(msg)
 	}
 
 	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, s.RootName))

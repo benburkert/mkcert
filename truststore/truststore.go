@@ -24,3 +24,9 @@ func fatalErr(err error, msg string) error {
 func fatalCmdErr(err error, cmd string, out []byte) error {
 	return fmt.Errorf("ERROR: failed to execute \"%s\": %w\n\n%s\n", cmd, err, out)
 }
+
+type Warning error
+
+func warnErr(format string, a ...any) error {
+	return Warning(fmt.Errorf(format, a...))
+}

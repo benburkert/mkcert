@@ -8,6 +8,7 @@ package main
 import (
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -205,11 +206,11 @@ func (m *mkcert) Run(args []string) {
 			warning = true
 			log.Println("Note: the local CA is not installed in the system trust store.")
 		}
-		if storeEnabled("nss") && m.HasNSS() && truststore.CertutilInstallHelp != "" && !logFatalErr(m.CheckNSS(m.caCert)) {
+		if storeEnabled("nss") && m.HasNSS() && truststore.CertutilInstallHelp != "" && !logErr(m.CheckNSS(m.caCert)) {
 			warning = true
 			log.Printf("Note: the local CA is not installed in the %s trust store.", truststore.NSSBrowsers)
 		}
-		if storeEnabled("java") && m.HasJava() && !logFatalErr(m.CheckJava(m.caCert)) {
+		if storeEnabled("java") && m.HasJava() && !logErr(m.CheckJava(m.caCert)) {
 			warning = true
 			log.Println("Note: the local CA is not installed in the Java trust store.")
 		}
@@ -284,17 +285,17 @@ func (m *mkcert) install() {
 		if m.checkPlatform() {
 			log.Print("The local CA is already installed in the system trust store! 👍")
 		} else {
-			if logFatalErr(m.InstallPlatform(m.caCert)) {
+			if logErr(m.InstallPlatform(m.caCert)) {
 				log.Print("The local CA is now installed in the system trust store! ⚡️")
 			}
 			m.ignoreCheckFailure = true // TODO: replace with a check for a successful install
 		}
 	}
 	if storeEnabled("nss") && m.HasNSS() {
-		if logFatalErr(m.CheckNSS(m.caCert)) {
+		if logErr(m.CheckNSS(m.caCert)) {
 			log.Printf("The local CA is already installed in the %s trust store! 👍", truststore.NSSBrowsers)
 		} else {
-			if m.HasCertutil() && logFatalErr(m.InstallNSS(m.caCert)) {
+			if m.HasCertutil() && logErr(m.InstallNSS(m.caCert)) {
 				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", truststore.NSSBrowsers)
 			} else if truststore.CertutilInstallHelp == "" {
 				log.Printf(`Note: %s support is not available on your platform. ℹ️`, truststore.NSSBrowsers)
@@ -305,11 +306,11 @@ func (m *mkcert) install() {
 		}
 	}
 	if storeEnabled("java") && m.HasJava() {
-		if logFatalErr(m.CheckJava(m.caCert)) {
+		if logErr(m.CheckJava(m.caCert)) {
 			log.Println("The local CA is already installed in Java's trust store! 👍")
 		} else {
 			if m.HasKeytool() {
-				logFatalErr(m.InstallJava(m.caCert))
+				logErr(m.InstallJava(m.caCert))
 				log.Println("The local CA is now installed in Java's trust store! ☕️")
 			} else {
 				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically installed in Java's trust store! ⚠️`)
@@ -322,7 +323,7 @@ func (m *mkcert) install() {
 func (m *mkcert) uninstall() {
 	if storeEnabled("nss") && m.HasNSS() {
 		if m.HasCertutil() {
-			logFatalErr(m.UninstallNSS(m.caCert))
+			logErr(m.UninstallNSS(m.caCert))
 		} else if truststore.CertutilInstallHelp != "" {
 			log.Print("")
 			log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, truststore.NSSBrowsers)
@@ -332,14 +333,14 @@ func (m *mkcert) uninstall() {
 	}
 	if storeEnabled("java") && m.HasJava() {
 		if m.HasKeytool() {
-			logFatalErr(m.UninstallJava(m.caCert))
+			logErr(m.UninstallJava(m.caCert))
 		} else {
 			log.Print("")
 			log.Println(`Warning: "keytool" is not available, so the CA can't be automatically uninstalled from Java's trust store (if it was ever installed)! ⚠️`)
 			log.Print("")
 		}
 	}
-	if storeEnabled("system") && logFatalErr(m.UninstallPlatform(m.caCert)) {
+	if storeEnabled("system") && logErr(m.UninstallPlatform(m.caCert)) {
 		log.Print("The local CA is now uninstalled from the system trust store(s)! 👋")
 		log.Print("")
 	} else if storeEnabled("nss") && m.HasCertutil() {
@@ -382,10 +383,16 @@ func fatalIfCmdErr(err error, cmd string, out []byte) {
 	}
 }
 
-func logFatalErr[T any](v T, err error) T {
-	if err != nil {
+func logErr[T any](v T, err error) T {
+	var werr truststore.Warning
+	if errors.As(err, &werr) {
+		for _, line := range strings.Split(werr.Error(), "\n") {
+			log.Println(line)
+		}
+	} else if err != nil {
 		log.Fatal(err)
 	}
+
 	return v
 }
 

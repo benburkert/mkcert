@@ -7,7 +7,7 @@ package truststore
 import (
 	"bytes"
 	"crypto/x509"
-	"log"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,13 +110,12 @@ func (s *Store) InstallNSS(caCert *x509.Certificate) (bool, error) {
 		return false, err
 	}
 	if count == 0 {
-		log.Printf("ERROR: no %s security databases found", NSSBrowsers)
-		return false, nil
+		return false, warnErr("ERROR: no %s security databases found", NSSBrowsers)
 	}
 	if ok, _ := s.CheckNSS(caCert); !ok {
-		log.Printf("Installing in %s failed. Please report the issue with details about your environment at https://github.com/FiloSottile/mkcert/issues/new 👎", NSSBrowsers)
-		log.Printf("Note that if you never started %s, you need to do that at least once.", NSSBrowsers)
-		return false, nil
+		msg := fmt.Sprintf("Installing in %s failed. Please report the issue with details about your environment at https://github.com/FiloSottile/mkcert/issues/new 👎\n", NSSBrowsers)
+		msg += fmt.Sprintf("Note that if you never started %s, you need to do that at least once.", NSSBrowsers)
+		return false, warnErr(msg)
 	}
 	return true, nil
 }
