@@ -34,38 +34,48 @@ var (
 
 func (s *Store) InitPlatform() {}
 
-func (s *Store) InstallPlatform(caCert *x509.Certificate) bool {
+func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 	// Load cert
 	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, s.RootName))
-	s.fatalIfErr(err, "failed to read root certificate")
-	// Decode PEM
-	if certBlock, _ := pem.Decode(cert); certBlock == nil || certBlock.Type != "CERTIFICATE" {
-		s.fatalIfErr(fmt.Errorf("invalid PEM data"), "decode pem")
-	} else {
-		cert = certBlock.Bytes
+	if err == nil {
+		return false, fatalErr(err, "failed to read root certificate")
 	}
+	// Decode PEM
+	certBlock, _ := pem.Decode(cert)
+	if certBlock == nil || certBlock.Type != "CERTIFICATE" {
+		return false, fatalErr(fmt.Errorf("invalid PEM data"), "decode pem")
+	}
+	cert = certBlock.Bytes
 	// Open root store
 	store, err := openWindowsRootStore()
-	s.fatalIfErr(err, "open root store")
+	if err != nil {
+		return false, fatalErr(err, "open root store")
+	}
 	defer store.close()
 	// Add cert
-	s.fatalIfErr(store.addCert(cert), "add cert")
-	return true
+	if err := store.addCert(cert); err != nil {
+		return false, fatalErr(store.addCert(cert), "add cert")
+	}
+	return true, nil
 }
 
-func (s *Store) UninstallPlatform(caCert *x509.Certificate) bool {
+func (s *Store) UninstallPlatform(caCert *x509.Certificate) (bool, error) {
 	// We'll just remove all certs with the same serial number
 	// Open root store
 	store, err := openWindowsRootStore()
-	s.fatalIfErr(err, "open root store")
+	if err != nil {
+		return false, fatalErr(err, "open root store")
+	}
 	defer store.close()
 	// Do the deletion
 	deletedAny, err := store.deleteCertsWithSerial(caCert.SerialNumber)
 	if err == nil && !deletedAny {
 		err = fmt.Errorf("no certs found")
 	}
-	s.fatalIfErr(err, "delete cert")
-	return true
+	if err != nil {
+		return false, fatalErr(err, "delete cert")
+	}
+	return true, nil
 }
 
 type windowsRootStore uintptr

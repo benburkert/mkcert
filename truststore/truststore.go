@@ -2,6 +2,7 @@ package truststore
 
 import (
 	"crypto/x509"
+	"fmt"
 	"os/exec"
 )
 
@@ -11,20 +12,15 @@ type Store struct {
 
 	CAUniqueName    func(caCert *x509.Certificate) string
 	CommandWithSudo func(cmd ...string) *exec.Cmd
-	Fatalf          func(format string, v ...any)
 
 	PathExists   func(path string) bool
 	BinaryExists func(name string) bool
 }
 
-func (s *Store) fatalIfErr(err error, msg string) {
-	if err != nil {
-		s.Fatalf("ERROR: %s: %s", msg, err)
-	}
+func fatalErr(err error, msg string) error {
+	return fmt.Errorf("ERROR: %s: %w", msg, err)
 }
 
-func (s *Store) fatalIfCmdErr(err error, cmd string, out []byte) {
-	if err != nil {
-		s.Fatalf("ERROR: failed to execute \"%s\": %s\n\n%s\n", cmd, err, out)
-	}
+func fatalCmdErr(err error, cmd string, out []byte) error {
+	return fmt.Errorf("ERROR: failed to execute \"%s\": %w\n\n%s\n", cmd, err, out)
 }
