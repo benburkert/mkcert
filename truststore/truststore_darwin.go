@@ -6,7 +6,6 @@ package truststore
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
 	"io/ioutil"
@@ -52,8 +51,8 @@ var trustSettingsData = []byte(`
 
 func (s *Store) InitPlatform() {}
 
-func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
-	cmd := s.CommandWithSudo("security", "add-trusted-cert", "-d", "-k", "/Library/Keychains/System.keychain", filepath.Join(s.CAROOT, s.RootName))
+func (s *Store) InstallPlatform(ca *CA) (bool, error) {
+	cmd := s.CommandWithSudo("security", "add-trusted-cert", "-d", "-k", "/Library/Keychains/System.keychain", filepath.Join(s.CAROOT, ca.FileName))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fatalCmdErr(err, "security add-trusted-cert", out)
@@ -86,7 +85,7 @@ func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 		return false, fmt.Errorf("ERROR: unsupported trust settings version: %s", plistRoot["trustVersion"])
 	}
 
-	rootSubjectASN1, err := asn1.Marshal(caCert.Subject.ToRDNSequence())
+	rootSubjectASN1, err := asn1.Marshal(ca.Certificate.Subject.ToRDNSequence())
 	if err != nil {
 		return false, fatalErr(err, "failed to marshal certificate subject")
 	}
@@ -120,8 +119,8 @@ func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallPlatform(caCert *x509.Certificate) (bool, error) {
-	cmd := s.CommandWithSudo("security", "remove-trusted-cert", "-d", filepath.Join(s.CAROOT, s.RootName))
+func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
+	cmd := s.CommandWithSudo("security", "remove-trusted-cert", "-d", filepath.Join(s.CAROOT, ca.FileName))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return false, fatalCmdErr(err, "security remove-trusted-cert", out)
 	}

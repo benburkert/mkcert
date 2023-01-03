@@ -34,9 +34,9 @@ var (
 
 func (s *Store) InitPlatform() {}
 
-func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
+func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	// Load cert
-	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, s.RootName))
+	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, ca.FileName))
 	if err == nil {
 		return false, fatalErr(err, "failed to read root certificate")
 	}
@@ -59,7 +59,7 @@ func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallPlatform(caCert *x509.Certificate) (bool, error) {
+func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
 	// We'll just remove all certs with the same serial number
 	// Open root store
 	store, err := openWindowsRootStore()
@@ -68,7 +68,7 @@ func (s *Store) UninstallPlatform(caCert *x509.Certificate) (bool, error) {
 	}
 	defer store.close()
 	// Do the deletion
-	deletedAny, err := store.deleteCertsWithSerial(caCert.SerialNumber)
+	deletedAny, err := store.deleteCertsWithSerial(ca.Certificate.SerialNumber)
 	if err == nil && !deletedAny {
 		err = fmt.Errorf("no certs found")
 	}

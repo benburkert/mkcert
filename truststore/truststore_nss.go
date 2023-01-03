@@ -6,7 +6,6 @@ package truststore
 
 import (
 	"bytes"
-	"crypto/x509"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,19 +87,19 @@ func (s *Store) HasCertutil() bool {
 	return hasCertutil
 }
 
-func (s *Store) CheckNSS(caCert *x509.Certificate) (bool, error) {
+func (s *Store) CheckNSS(ca *CA) (bool, error) {
 	if !hasCertutil {
 		return false, nil
 	}
 	count, err := s.forEachNSSProfile(func(profile string) error {
-		return exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", s.CAUniqueName(caCert)).Run()
+		return exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", ca.UniqueName).Run()
 	})
 	return count != 0 && err == nil, nil
 }
 
-func (s *Store) InstallNSS(caCert *x509.Certificate) (bool, error) {
+func (s *Store) InstallNSS(ca *CA) (bool, error) {
 	count, err := s.forEachNSSProfile(func(profile string) error {
-		cmd := exec.Command(certutilPath, "-A", "-d", profile, "-t", "C,,", "-n", s.CAUniqueName(caCert), "-i", filepath.Join(s.CAROOT, s.RootName))
+		cmd := exec.Command(certutilPath, "-A", "-d", profile, "-t", "C,,", "-n", ca.UniqueName, "-i", filepath.Join(s.CAROOT, ca.FileName))
 		if out, err := s.execCertutil(cmd); err != nil {
 			return fatalCmdErr(err, "certutil -A -d "+profile, out)
 		}
@@ -112,7 +111,7 @@ func (s *Store) InstallNSS(caCert *x509.Certificate) (bool, error) {
 	if count == 0 {
 		return false, warnErr("ERROR: no %s security databases found", NSSBrowsers)
 	}
-	if ok, _ := s.CheckNSS(caCert); !ok {
+	if ok, _ := s.CheckNSS(ca); !ok {
 		msg := fmt.Sprintf("Installing in %s failed. Please report the issue with details about your environment at https://github.com/FiloSottile/mkcert/issues/new 👎\n", NSSBrowsers)
 		msg += fmt.Sprintf("Note that if you never started %s, you need to do that at least once.", NSSBrowsers)
 		return false, warnErr(msg)
@@ -120,13 +119,13 @@ func (s *Store) InstallNSS(caCert *x509.Certificate) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallNSS(caCert *x509.Certificate) (bool, error) {
+func (s *Store) UninstallNSS(ca *CA) (bool, error) {
 	_, err := s.forEachNSSProfile(func(profile string) error {
-		if exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", s.CAUniqueName(caCert)).Run() != nil {
+		if exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", ca.UniqueName).Run() != nil {
 			return nil
 		}
 
-		cmd := exec.Command(certutilPath, "-D", "-d", profile, "-n", s.CAUniqueName(caCert))
+		cmd := exec.Command(certutilPath, "-D", "-d", profile, "-n", ca.UniqueName)
 		if out, err := s.execCertutil(cmd); err != nil {
 			return fatalCmdErr(err, "certutil -D -d "+profile, out)
 		}

@@ -6,11 +6,16 @@ import (
 	"os/exec"
 )
 
-type Store struct {
-	CAROOT   string
-	RootName string
+type CA struct {
+	*x509.Certificate
 
-	CAUniqueName    func(caCert *x509.Certificate) string
+	FileName   string
+	UniqueName string
+}
+
+type Store struct {
+	CAROOT string
+
 	CommandWithSudo func(cmd ...string) *exec.Cmd
 
 	PathExists   func(path string) bool

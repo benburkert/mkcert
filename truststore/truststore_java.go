@@ -69,7 +69,7 @@ func (s *Store) HasKeytool() bool {
 	return hasKeytool
 }
 
-func (s *Store) CheckJava(caCert *x509.Certificate) (bool, error) {
+func (s *Store) CheckJava(ca *CA) (bool, error) {
 	if !hasKeytool {
 		return false, nil
 	}
@@ -93,16 +93,16 @@ func (s *Store) CheckJava(caCert *x509.Certificate) (bool, error) {
 
 	// pre-Java 9 uses SHA1 fingerprints
 	s1, s256 := sha1.New(), sha256.New()
-	return exists(caCert, s1, keytoolOutput) || exists(caCert, s256, keytoolOutput), nil
+	return exists(ca.Certificate, s1, keytoolOutput) || exists(ca.Certificate, s256, keytoolOutput), nil
 }
 
-func (s *Store) InstallJava(caCert *x509.Certificate) (bool, error) {
+func (s *Store) InstallJava(ca *CA) (bool, error) {
 	args := []string{
 		"-importcert", "-noprompt",
 		"-keystore", cacertsPath,
 		"-storepass", storePass,
-		"-file", filepath.Join(s.CAROOT, s.RootName),
-		"-alias", s.CAUniqueName(caCert),
+		"-file", filepath.Join(s.CAROOT, ca.FileName),
+		"-alias", ca.UniqueName,
 	}
 
 	if out, err := s.execKeytool(exec.Command(keytoolPath, args...)); err != nil {
@@ -111,10 +111,10 @@ func (s *Store) InstallJava(caCert *x509.Certificate) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallJava(caCert *x509.Certificate) (bool, error) {
+func (s *Store) UninstallJava(ca *CA) (bool, error) {
 	args := []string{
 		"-delete",
-		"-alias", s.CAUniqueName(caCert),
+		"-alias", ca.UniqueName,
 		"-keystore", cacertsPath,
 		"-storepass", storePass,
 	}

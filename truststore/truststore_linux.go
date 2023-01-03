@@ -6,7 +6,6 @@ package truststore
 
 import (
 	"bytes"
-	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -48,25 +47,25 @@ func (s *Store) InitPlatform() {
 	}
 }
 
-func (s *Store) systemTrustFilename(caCert *x509.Certificate) string {
-	return fmt.Sprintf(SystemTrustFilename, strings.Replace(s.CAUniqueName(caCert), " ", "_", -1))
+func (s *Store) systemTrustFilename(ca *CA) string {
+	return fmt.Sprintf(SystemTrustFilename, strings.Replace(ca.UniqueName, " ", "_", -1))
 }
 
-func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
+func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	s.InitPlatform()
 
 	if SystemTrustCommand == nil {
 		msg := fmt.Sprintf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.\n", NSSBrowsers)
-		msg += fmt.Sprintf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, s.RootName))
+		msg += fmt.Sprintf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, ca.FileName))
 		return false, warnErr(msg)
 	}
 
-	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, s.RootName))
+	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, ca.FileName))
 	if err != nil {
 		return false, fatalErr(err, "failed to read root certificate")
 	}
 
-	cmd := s.CommandWithSudo("tee", s.systemTrustFilename(caCert))
+	cmd := s.CommandWithSudo("tee", s.systemTrustFilename(ca))
 	cmd.Stdin = bytes.NewReader(cert)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return false, fatalCmdErr(err, "tee", out)
@@ -80,14 +79,14 @@ func (s *Store) InstallPlatform(caCert *x509.Certificate) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallPlatform(caCert *x509.Certificate) (bool, error) {
+func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
 	s.InitPlatform()
 
 	if SystemTrustCommand == nil {
 		return false, nil
 	}
 
-	cmd := s.CommandWithSudo("rm", "-f", s.systemTrustFilename(caCert))
+	cmd := s.CommandWithSudo("rm", "-f", s.systemTrustFilename(ca))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return false, fatalCmdErr(err, "rm", out)
 	}
