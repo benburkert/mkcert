@@ -9,7 +9,7 @@ import (
 )
 
 type CmdFS interface {
-	fs.FS
+	fs.StatFS
 
 	Command(name string, arg ...string) *exec.Cmd
 	Exec(cmd *exec.Cmd) ([]byte, error)
@@ -19,12 +19,12 @@ type CmdFS interface {
 
 func RootFS() CmdFS {
 	return &rootFS{
-		FS: os.DirFS("/"),
+		StatFS: os.DirFS("/").(fs.StatFS),
 	}
 }
 
 type rootFS struct {
-	fs.FS
+	fs.StatFS
 
 	sudoWarningOnce sync.Once
 }

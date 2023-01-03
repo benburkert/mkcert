@@ -43,16 +43,16 @@ func (s *Store) InitJava() {
 			hasJava = true
 			javaHome = v
 
-			if s.PathExists(filepath.Join(v, keytoolPath)) {
+			if s.pathExists(filepath.Join(v, keytoolPath)) {
 				hasKeytool = true
 				keytoolPath = filepath.Join(v, keytoolPath)
 			}
 
-			if s.PathExists(filepath.Join(v, "lib", "security", "cacerts")) {
+			if s.pathExists(filepath.Join(v, "lib", "security", "cacerts")) {
 				cacertsPath = filepath.Join(v, "lib", "security", "cacerts")
 			}
 
-			if s.PathExists(filepath.Join(v, "jre", "lib", "security", "cacerts")) {
+			if s.pathExists(filepath.Join(v, "jre", "lib", "security", "cacerts")) {
 				cacertsPath = filepath.Join(v, "jre", "lib", "security", "cacerts")
 			}
 		}

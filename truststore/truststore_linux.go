@@ -32,16 +32,16 @@ func (s *Store) InitPlatform() {
 	case s.binaryExists("zypper"):
 		CertutilInstallHelp = "zypper install mozilla-nss-tools"
 	}
-	if s.PathExists("/etc/pki/ca-trust/source/anchors/") {
+	if s.pathExists("/etc/pki/ca-trust/source/anchors/") {
 		SystemTrustFilename = "/etc/pki/ca-trust/source/anchors/%s.pem"
 		SystemTrustCommand = []string{"update-ca-trust", "extract"}
-	} else if s.PathExists("/usr/local/share/ca-certificates/") {
+	} else if s.pathExists("/usr/local/share/ca-certificates/") {
 		SystemTrustFilename = "/usr/local/share/ca-certificates/%s.crt"
 		SystemTrustCommand = []string{"update-ca-certificates"}
-	} else if s.PathExists("/etc/ca-certificates/trust-source/anchors/") {
+	} else if s.pathExists("/etc/ca-certificates/trust-source/anchors/") {
 		SystemTrustFilename = "/etc/ca-certificates/trust-source/anchors/%s.crt"
 		SystemTrustCommand = []string{"trust", "extract-compat"}
-	} else if s.PathExists("/usr/share/pki/trust/anchors") {
+	} else if s.pathExists("/usr/share/pki/trust/anchors") {
 		SystemTrustFilename = "/usr/share/pki/trust/anchors/%s.pem"
 		SystemTrustCommand = []string{"update-ca-certificates"}
 	}
@@ -92,7 +92,7 @@ func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
 
 	// We used to install under non-unique filenames.
 	legacyFilename := fmt.Sprintf(SystemTrustFilename, "mkcert-rootCA")
-	if s.PathExists(legacyFilename) {
+	if s.pathExists(legacyFilename) {
 		cmd := s.SysFS.Command("rm", "-f", legacyFilename)
 		if out, err := s.SysFS.SudoExec(cmd); err != nil {
 			return false, fatalCmdErr(err, "rm (legacy filename)", out)

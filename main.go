@@ -145,13 +145,15 @@ func main() {
 	if *csrFlag != "" && flag.NArg() != 0 {
 		log.Fatalln("ERROR: can't specify extra arguments when using -csr")
 	}
+
+	rootFS := truststore.RootFS()
+
 	(&mkcert{
 		Store: &truststore.Store{
 			CAROOT: getCAROOT(),
 
-			SysFS: truststore.RootFS(),
-
-			PathExists: pathExists,
+			DataFS: rootFS,
+			SysFS:  rootFS,
 		},
 
 		installMode: *installFlag, uninstallMode: *uninstallFlag, csrPath: *csrFlag,

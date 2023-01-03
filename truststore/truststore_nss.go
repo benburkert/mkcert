@@ -44,7 +44,7 @@ func (s *Store) InitNSS() {
 
 		allPaths := append(append([]string{}, nssDBs...), firefoxPaths...)
 		for _, path := range allPaths {
-			if s.PathExists(path) {
+			if s.pathExists(path) {
 				hasNSS = true
 				break
 			}
@@ -63,7 +63,7 @@ func (s *Store) InitNSS() {
 			default:
 				if out, err := s.SysFS.Exec(s.SysFS.Command("brew", "--prefix", "nss")); err != nil {
 					certutilPath = filepath.Join(strings.TrimSpace(string(out)), "bin", "certutil")
-					hasCertutil = s.PathExists(certutilPath)
+					hasCertutil = s.pathExists(certutilPath)
 				}
 			}
 
@@ -170,12 +170,12 @@ func (s *Store) forEachNSSProfile(f func(profile string) error) (found int, err 
 		if stat, err := os.Stat(profile); err != nil || !stat.IsDir() {
 			continue
 		}
-		if s.PathExists(filepath.Join(profile, "cert9.db")) {
+		if s.pathExists(filepath.Join(profile, "cert9.db")) {
 			if err := f("sql:" + profile); err != nil {
 				return 0, err
 			}
 			found++
-		} else if s.PathExists(filepath.Join(profile, "cert8.db")) {
+		} else if s.pathExists(filepath.Join(profile, "cert8.db")) {
 			if err := f("dbm:" + profile); err != nil {
 				return 0, err
 			}

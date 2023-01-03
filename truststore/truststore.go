@@ -3,6 +3,9 @@ package truststore
 import (
 	"crypto/x509"
 	"fmt"
+	"io/fs"
+	"os"
+	"strings"
 )
 
 type CA struct {
@@ -15,13 +18,17 @@ type CA struct {
 type Store struct {
 	CAROOT string
 
-	SysFS CmdFS
-
-	PathExists func(path string) bool
+	DataFS fs.StatFS
+	SysFS  CmdFS
 }
 
 func (s *Store) binaryExists(name string) bool {
 	_, err := s.SysFS.LookPath(name)
+	return err == nil
+}
+
+func (s *Store) pathExists(path string) bool {
+	_, err := s.DataFS.Stat(strings.Trim(path, string(os.PathSeparator)))
 	return err == nil
 }
 
