@@ -25,11 +25,11 @@ var (
 
 func (s *Store) InitPlatform() {
 	switch {
-	case s.BinaryExists("apt"):
+	case s.binaryExists("apt"):
 		CertutilInstallHelp = "apt install libnss3-tools"
-	case s.BinaryExists("yum"):
+	case s.binaryExists("yum"):
 		CertutilInstallHelp = "yum install nss-tools"
-	case s.BinaryExists("zypper"):
+	case s.binaryExists("zypper"):
 		CertutilInstallHelp = "zypper install mozilla-nss-tools"
 	}
 	if s.PathExists("/etc/pki/ca-trust/source/anchors/") {
@@ -65,14 +65,13 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 		return false, fatalErr(err, "failed to read root certificate")
 	}
 
-	cmd := s.CommandWithSudo("tee", s.systemTrustFilename(ca))
+	cmd := s.SysFS.Command("tee", s.systemTrustFilename(ca))
 	cmd.Stdin = bytes.NewReader(cert)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := s.SysFS.SudoExec(cmd); err != nil {
 		return false, fatalCmdErr(err, "tee", out)
 	}
 
-	cmd = s.CommandWithSudo(SystemTrustCommand...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := s.SysFS.SudoExec(s.SysFS.Command(SystemTrustCommand[0], SystemTrustCommand[1:]...)); err != nil {
 		return false, fatalCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
 	}
 
@@ -86,22 +85,22 @@ func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
 		return false, nil
 	}
 
-	cmd := s.CommandWithSudo("rm", "-f", s.systemTrustFilename(ca))
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd := s.SysFS.Command("rm", "-f", s.systemTrustFilename(ca))
+	if out, err := s.SysFS.SudoExec(cmd); err != nil {
 		return false, fatalCmdErr(err, "rm", out)
 	}
 
 	// We used to install under non-unique filenames.
 	legacyFilename := fmt.Sprintf(SystemTrustFilename, "mkcert-rootCA")
 	if s.PathExists(legacyFilename) {
-		cmd := s.CommandWithSudo("rm", "-f", legacyFilename)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		cmd := s.SysFS.Command("rm", "-f", legacyFilename)
+		if out, err := s.SysFS.SudoExec(cmd); err != nil {
 			return false, fatalCmdErr(err, "rm (legacy filename)", out)
 		}
 	}
 
-	cmd = s.CommandWithSudo(SystemTrustCommand...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd = s.SysFS.Command(SystemTrustCommand[0], SystemTrustCommand[1:]...)
+	if out, err := s.SysFS.SudoExec(cmd); err != nil {
 		return false, fatalCmdErr(err, strings.Join(SystemTrustCommand, " "), out)
 	}
 

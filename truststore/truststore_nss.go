@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -54,24 +53,23 @@ func (s *Store) InitNSS() {
 		switch runtime.GOOS {
 		case "darwin":
 			switch {
-			case s.BinaryExists("certutil"):
-				certutilPath, _ = exec.LookPath("certutil")
+			case s.binaryExists("certutil"):
+				certutilPath, _ = s.SysFS.LookPath("certutil")
 				hasCertutil = true
-			case s.BinaryExists("/usr/local/opt/nss/bin/certutil"):
+			case s.binaryExists("/usr/local/opt/nss/bin/certutil"):
 				// Check the default Homebrew path, to save executing Ruby. #135
 				certutilPath = "/usr/local/opt/nss/bin/certutil"
 				hasCertutil = true
 			default:
-				out, err := exec.Command("brew", "--prefix", "nss").Output()
-				if err == nil {
+				if out, err := s.SysFS.Exec(s.SysFS.Command("brew", "--prefix", "nss")); err != nil {
 					certutilPath = filepath.Join(strings.TrimSpace(string(out)), "bin", "certutil")
 					hasCertutil = s.PathExists(certutilPath)
 				}
 			}
 
 		case "linux":
-			if hasCertutil = s.BinaryExists("certutil"); hasCertutil {
-				certutilPath, _ = exec.LookPath("certutil")
+			if hasCertutil = s.binaryExists("certutil"); hasCertutil {
+				certutilPath, _ = s.SysFS.LookPath("certutil")
 			}
 		}
 	})
@@ -92,15 +90,22 @@ func (s *Store) CheckNSS(ca *CA) (bool, error) {
 		return false, nil
 	}
 	count, err := s.forEachNSSProfile(func(profile string) error {
-		return exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", ca.UniqueName).Run()
+		_, err := s.SysFS.Exec(s.SysFS.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", ca.UniqueName))
+		return err
 	})
 	return count != 0 && err == nil, nil
 }
 
 func (s *Store) InstallNSS(ca *CA) (bool, error) {
 	count, err := s.forEachNSSProfile(func(profile string) error {
-		cmd := exec.Command(certutilPath, "-A", "-d", profile, "-t", "C,,", "-n", ca.UniqueName, "-i", filepath.Join(s.CAROOT, ca.FileName))
-		if out, err := s.execCertutil(cmd); err != nil {
+		args := []string{
+			"-A", "-d", profile,
+			"-t", "C,,",
+			"-n", ca.UniqueName,
+			"-i", filepath.Join(s.CAROOT, ca.FileName),
+		}
+
+		if out, err := s.execCertutil(certutilPath, args...); err != nil {
 			return fatalCmdErr(err, "certutil -A -d "+profile, out)
 		}
 		return nil
@@ -121,12 +126,22 @@ func (s *Store) InstallNSS(ca *CA) (bool, error) {
 
 func (s *Store) UninstallNSS(ca *CA) (bool, error) {
 	_, err := s.forEachNSSProfile(func(profile string) error {
-		if exec.Command(certutilPath, "-V", "-d", profile, "-u", "L", "-n", ca.UniqueName).Run() != nil {
+		args := []string{
+			"-V", "-d", profile,
+			"-u", "L",
+			"-n", ca.UniqueName,
+		}
+
+		if _, err := s.SysFS.Exec(s.SysFS.Command(certutilPath, args...)); err != nil {
 			return nil
 		}
 
-		cmd := exec.Command(certutilPath, "-D", "-d", profile, "-n", ca.UniqueName)
-		if out, err := s.execCertutil(cmd); err != nil {
+		args = []string{
+			"-D", "-d", profile,
+			"-n", ca.UniqueName,
+		}
+
+		if out, err := s.execCertutil(certutilPath, args...); err != nil {
 			return fatalCmdErr(err, "certutil -D -d "+profile, out)
 		}
 		return nil
@@ -136,13 +151,10 @@ func (s *Store) UninstallNSS(ca *CA) (bool, error) {
 
 // execCertutil will execute a "certutil" command and if needed re-execute
 // the command with commandWithSudo to work around file permissions.
-func (s *Store) execCertutil(cmd *exec.Cmd) ([]byte, error) {
-	out, err := cmd.CombinedOutput()
+func (s *Store) execCertutil(path string, arg ...string) ([]byte, error) {
+	out, err := s.SysFS.Exec(s.SysFS.Command(path, arg...))
 	if err != nil && bytes.Contains(out, []byte("SEC_ERROR_READ_ONLY")) && runtime.GOOS != "windows" {
-		origArgs := cmd.Args[1:]
-		cmd = s.CommandWithSudo(cmd.Path)
-		cmd.Args = append(cmd.Args, origArgs...)
-		out, err = cmd.CombinedOutput()
+		out, err = s.SysFS.SudoExec(s.SysFS.Command(path, arg...))
 	}
 	return out, err
 }

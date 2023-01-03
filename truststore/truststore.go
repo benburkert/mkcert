@@ -3,7 +3,6 @@ package truststore
 import (
 	"crypto/x509"
 	"fmt"
-	"os/exec"
 )
 
 type CA struct {
@@ -16,10 +15,14 @@ type CA struct {
 type Store struct {
 	CAROOT string
 
-	CommandWithSudo func(cmd ...string) *exec.Cmd
+	SysFS CmdFS
 
-	PathExists   func(path string) bool
-	BinaryExists func(name string) bool
+	PathExists func(path string) bool
+}
+
+func (s *Store) binaryExists(name string) bool {
+	_, err := s.SysFS.LookPath(name)
+	return err == nil
 }
 
 func fatalErr(err error, msg string) error {

@@ -149,10 +149,9 @@ func main() {
 		Store: &truststore.Store{
 			CAROOT: getCAROOT(),
 
-			CommandWithSudo: commandWithSudo,
+			SysFS: truststore.RootFS(),
 
-			PathExists:   pathExists,
-			BinaryExists: binaryExists,
+			PathExists: pathExists,
 		},
 
 		installMode: *installFlag, uninstallMode: *uninstallFlag, csrPath: *csrFlag,

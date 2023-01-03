@@ -52,9 +52,12 @@ var trustSettingsData = []byte(`
 func (s *Store) InitPlatform() {}
 
 func (s *Store) InstallPlatform(ca *CA) (bool, error) {
-	cmd := s.CommandWithSudo("security", "add-trusted-cert", "-d", "-k", "/Library/Keychains/System.keychain", filepath.Join(s.CAROOT, ca.FileName))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
+	args := []string{
+		"add-trusted-cert", "-d",
+		"-k", "/Library/Keychains/System.keychain",
+		filepath.Join(s.CAROOT, ca.FileName),
+	}
+	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security add-trusted-cert", out)
 	}
 
@@ -67,8 +70,11 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	}
 	defer os.Remove(plistFile.Name())
 
-	cmd = s.CommandWithSudo("security", "trust-settings-export", "-d", plistFile.Name())
-	if out, err = cmd.CombinedOutput(); err != nil {
+	args = []string{
+		"trust-settings-export",
+		"-d", plistFile.Name(),
+	}
+	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security trust-settings-export", out)
 	}
 
@@ -111,8 +117,11 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 		return false, fatalErr(err, "failed to write trust settings")
 	}
 
-	cmd = s.CommandWithSudo("security", "trust-settings-import", "-d", plistFile.Name())
-	if out, err = cmd.CombinedOutput(); err != nil {
+	args = []string{
+		"trust-settings-import",
+		"-d", plistFile.Name(),
+	}
+	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security trust-settings-import", out)
 	}
 
@@ -120,8 +129,11 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 }
 
 func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
-	cmd := s.CommandWithSudo("security", "remove-trusted-cert", "-d", filepath.Join(s.CAROOT, ca.FileName))
-	if out, err := cmd.CombinedOutput(); err != nil {
+	args := []string{
+		"remove-trusted-cert",
+		"-d", filepath.Join(s.CAROOT, ca.FileName),
+	}
+	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security remove-trusted-cert", out)
 	}
 	return true, nil

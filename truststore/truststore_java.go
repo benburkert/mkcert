@@ -82,7 +82,13 @@ func (s *Store) CheckJava(ca *CA) (bool, error) {
 		return bytes.Contains(keytoolOutput, []byte(fp))
 	}
 
-	keytoolOutput, err := exec.Command(keytoolPath, "-list", "-keystore", cacertsPath, "-storepass", storePass).CombinedOutput()
+	args := []string{
+		"-list",
+		"-keystore", cacertsPath,
+		"-storepass", storePass,
+	}
+
+	keytoolOutput, err := s.SysFS.Exec(s.SysFS.Command(keytoolPath, args...))
 	if err != nil {
 		return false, fatalCmdErr(err, "keytool -list", keytoolOutput)
 	}
@@ -105,7 +111,7 @@ func (s *Store) InstallJava(ca *CA) (bool, error) {
 		"-alias", ca.UniqueName,
 	}
 
-	if out, err := s.execKeytool(exec.Command(keytoolPath, args...)); err != nil {
+	if out, err := s.execKeytool(s.SysFS.Command(keytoolPath, args...)); err != nil {
 		return false, fatalCmdErr(err, "keytool -importcert", out)
 	}
 	return true, nil
@@ -118,7 +124,7 @@ func (s *Store) UninstallJava(ca *CA) (bool, error) {
 		"-keystore", cacertsPath,
 		"-storepass", storePass,
 	}
-	out, err := s.execKeytool(exec.Command(keytoolPath, args...))
+	out, err := s.execKeytool(s.SysFS.Command(keytoolPath, args...))
 	if bytes.Contains(out, []byte("does not exist")) {
 		return false, nil // cert didn't exist
 	}
@@ -131,15 +137,13 @@ func (s *Store) UninstallJava(ca *CA) (bool, error) {
 // execKeytool will execute a "keytool" command and if needed re-execute
 // the command with commandWithSudo to work around file permissions.
 func (s *Store) execKeytool(cmd *exec.Cmd) ([]byte, error) {
-	out, err := cmd.CombinedOutput()
+	out, err := s.SysFS.Exec(cmd)
 	if err != nil && bytes.Contains(out, []byte("java.io.FileNotFoundException")) && runtime.GOOS != "windows" {
-		origArgs := cmd.Args[1:]
-		cmd = s.CommandWithSudo(cmd.Path)
-		cmd.Args = append(cmd.Args, origArgs...)
+		cmd = s.SysFS.Command(cmd.Args[0], cmd.Args[1:]...)
 		cmd.Env = []string{
 			"JAVA_HOME=" + javaHome,
 		}
-		out, err = cmd.CombinedOutput()
+		return s.SysFS.SudoExec(cmd)
 	}
 	return out, err
 }
