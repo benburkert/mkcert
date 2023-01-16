@@ -16,14 +16,11 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"sync"
 
 	"golang.org/x/net/idna"
 
@@ -301,13 +298,8 @@ func (m *mkcert) install() {
 		if logErr(m.CheckNSS(m.ca)) {
 			log.Printf("The local CA is already installed in the %s trust store! 👍", truststore.NSSBrowsers)
 		} else {
-			if m.HasCertutil() && logErr(m.InstallNSS(m.ca)) {
+			if logErr(m.InstallNSS(m.ca)) {
 				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", truststore.NSSBrowsers)
-			} else if truststore.CertutilInstallHelp == "" {
-				log.Printf(`Note: %s support is not available on your platform. ℹ️`, truststore.NSSBrowsers)
-			} else if !m.HasCertutil() {
-				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, truststore.NSSBrowsers)
-				log.Printf(`Install "certutil" with "%s" and re-run "mkcert -install" 👈`, truststore.CertutilInstallHelp)
 			}
 		}
 	}
@@ -328,14 +320,7 @@ func (m *mkcert) install() {
 
 func (m *mkcert) uninstall() {
 	if storeEnabled("nss") && m.HasNSS() {
-		if m.HasCertutil() {
-			logErr(m.UninstallNSS(m.ca))
-		} else if truststore.CertutilInstallHelp != "" {
-			log.Print("")
-			log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, truststore.NSSBrowsers)
-			log.Printf(`You can install "certutil" with "%s" and re-run "mkcert -uninstall" 👈`, truststore.CertutilInstallHelp)
-			log.Print("")
-		}
+		logErr(m.UninstallNSS(m.ca))
 	}
 	if storeEnabled("java") && m.HasJava() {
 		if m.HasKeytool() {
@@ -346,6 +331,7 @@ func (m *mkcert) uninstall() {
 			log.Print("")
 		}
 	}
+
 	if storeEnabled("system") && logErr(m.UninstallPlatform(m.ca)) {
 		log.Print("The local CA is now uninstalled from the system trust store(s)! 👋")
 		log.Print("")
@@ -383,46 +369,60 @@ func fatalIfErr(err error, msg string) {
 	}
 }
 
-func fatalIfCmdErr(err error, cmd string, out []byte) {
-	if err != nil {
-		log.Fatalf("ERROR: failed to execute \"%s\": %s\n\n%s\n", cmd, err, out)
-	}
-}
-
 func logErr[T any](v T, err error) T {
-	var werr truststore.Warning
-	if errors.As(err, &werr) {
-		for _, line := range strings.Split(werr.Error(), "\n") {
-			log.Println(line)
+	var terr truststore.Error
+	if errors.As(err, &terr) {
+		if w := terr.Warning; w != nil {
+			logWarning(w)
 		}
-	} else if err != nil {
-		log.Fatal(err)
+		return logErr(v, terr.Fatal)
 	}
-
+	if err != nil {
+		log.Fatalf("ERROR: %s", err)
+	}
 	return v
 }
 
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func binaryExists(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
-}
-
-var sudoWarningOnce sync.Once
-
-func commandWithSudo(cmd ...string) *exec.Cmd {
-	if u, err := user.Current(); err == nil && u.Uid == "0" {
-		return exec.Command(cmd[0], cmd[1:]...)
-	}
-	if !binaryExists("sudo") {
-		sudoWarningOnce.Do(func() {
+func logWarning(err error) {
+	switch err := err.(type) {
+	case truststore.NSSError:
+		switch err.Err {
+		case truststore.NoCertutil:
+			switch err.Operation {
+			case "install":
+				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, err.NSSBrowsers)
+				log.Printf(`Install "certutil" with "%s" and re-run "mkcert -install" 👈`, err.CertutilInstallHelp)
+			case "uninstall":
+				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, err.NSSBrowsers)
+				log.Printf(`You can install "certutil" with "%s" and re-run "mkcert -uninstall" 👈`, err.CertutilInstallHelp)
+			default:
+				panic("unhandled nss no certutil operation warning")
+			}
+		case truststore.NoNSS:
+			log.Printf(`Note: %s support is not available on your platform. ℹ️`, err.NSSBrowsers)
+		case truststore.NoNSSDB:
+			log.Printf("ERROR: no %s security databases found", err.NSSBrowsers)
+		default:
+			panic("unhandled nss warning")
+		}
+	case truststore.PlatformError:
+		switch err.Err {
+		case truststore.UnsupportedDistro:
+			log.Printf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.", err.NSSBrowsers)
+			log.Printf("You can also manually install the root certificate at %q.", err.RootCA)
+		default:
+			panic("unhandled platform warning")
+		}
+	default:
+		switch err {
+		case truststore.NoSudo:
 			log.Println(`Warning: "sudo" is not available, and mkcert is not running as root. The (un)install operation might fail. ⚠️`)
-		})
-		return exec.Command(cmd[0], cmd[1:]...)
+		default:
+			panic("unhandled warning")
+		}
 	}
-	return exec.Command("sudo", append([]string{"--prompt=Sudo password:", "--"}, cmd...)...)
+}
+
+func caUniqueName(caCert *x509.Certificate) string {
+	return "mkcert development CA " + caCert.SerialNumber.String()
 }

@@ -2,10 +2,15 @@ package truststore
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"strings"
+)
+
+var (
+	UnsupportedDistro = errors.New("unsupported Linux distrobution")
 )
 
 type CA struct {
@@ -33,15 +38,30 @@ func (s *Store) pathExists(path string) bool {
 }
 
 func fatalErr(err error, msg string) error {
-	return fmt.Errorf("ERROR: %s: %w", msg, err)
+	return fmt.Errorf("%s: %w", msg, err)
 }
 
 func fatalCmdErr(err error, cmd string, out []byte) error {
-	return fmt.Errorf("ERROR: failed to execute \"%s\": %w\n\n%s\n", cmd, err, out)
+	return fmt.Errorf("failed to execute \"%s\": %w\n\n%s\n", cmd, err, out)
 }
 
-type Warning error
-
-func warnErr(format string, a ...any) error {
-	return Warning(fmt.Errorf(format, a...))
+type Error struct {
+	Fatal   error
+	Warning error
 }
+
+func (e Error) Error() string {
+	if e.Fatal != nil {
+		return e.Fatal.Error()
+	}
+	return e.Warning.Error()
+}
+
+type PlatformError struct {
+	Err error
+
+	NSSBrowsers string
+	RootCA      string
+}
+
+func (e PlatformError) Error() string { return e.Err.Error() }

@@ -6,7 +6,7 @@ package truststore
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +15,11 @@ import (
 )
 
 var (
+	NoCertutil = errors.New("no certutil tooling")
+	NoNSS      = errors.New("no NSS browser")
+	NoNSSDB    = errors.New("no NSS database")
+	UnknownNSS = errors.New("unknown NSS install") // untested
+
 	hasNSS       bool
 	hasCertutil  bool
 	certutilPath string
@@ -35,6 +40,16 @@ var (
 		"C:\\Program Files\\Mozilla Firefox",
 	}
 )
+
+type NSSError struct {
+	Err error
+
+	CertutilInstallHelp string
+	NSSBrowsers         string
+	Operation           string
+}
+
+func (e NSSError) Error() string { return e.Err.Error() }
 
 var initNSSOnce sync.Once
 
@@ -96,7 +111,30 @@ func (s *Store) CheckNSS(ca *CA) (bool, error) {
 	return count != 0 && err == nil, nil
 }
 
-func (s *Store) InstallNSS(ca *CA) (bool, error) {
+func (s *Store) InstallNSS(ca *CA) (ok bool, err error) {
+	if !hasCertutil {
+		if CertutilInstallHelp == "" {
+			return false, Error{
+				Warning: NSSError{
+					Err: NoNSS,
+
+					CertutilInstallHelp: CertutilInstallHelp,
+					NSSBrowsers:         NSSBrowsers,
+					Operation:           "install",
+				},
+			}
+		}
+		return false, Error{
+			Warning: NSSError{
+				Err: NoCertutil,
+
+				CertutilInstallHelp: CertutilInstallHelp,
+				NSSBrowsers:         NSSBrowsers,
+				Operation:           "install",
+			},
+		}
+	}
+
 	count, err := s.forEachNSSProfile(func(profile string) error {
 		args := []string{
 			"-A", "-d", profile,
@@ -114,17 +152,46 @@ func (s *Store) InstallNSS(ca *CA) (bool, error) {
 		return false, err
 	}
 	if count == 0 {
-		return false, warnErr("ERROR: no %s security databases found", NSSBrowsers)
+		return false, Error{
+			Warning: NSSError{
+				Err: NoNSSDB,
+
+				CertutilInstallHelp: CertutilInstallHelp,
+				NSSBrowsers:         NSSBrowsers,
+				Operation:           "install",
+			},
+		}
 	}
 	if ok, _ := s.CheckNSS(ca); !ok {
-		msg := fmt.Sprintf("Installing in %s failed. Please report the issue with details about your environment at https://github.com/FiloSottile/mkcert/issues/new 👎\n", NSSBrowsers)
-		msg += fmt.Sprintf("Note that if you never started %s, you need to do that at least once.", NSSBrowsers)
-		return false, warnErr(msg)
+		return false, Error{Warning: UnknownNSS}
 	}
 	return true, nil
 }
 
 func (s *Store) UninstallNSS(ca *CA) (bool, error) {
+	if !hasCertutil {
+		if CertutilInstallHelp == "" {
+			return false, Error{
+				Warning: NSSError{
+					Err: NoNSS,
+
+					CertutilInstallHelp: CertutilInstallHelp,
+					NSSBrowsers:         NSSBrowsers,
+					Operation:           "uninstall",
+				},
+			}
+		}
+		return false, Error{
+			Warning: NSSError{
+				Err: NoCertutil,
+
+				CertutilInstallHelp: CertutilInstallHelp,
+				NSSBrowsers:         NSSBrowsers,
+				Operation:           "uninstall",
+			},
+		}
+	}
+
 	_, err := s.forEachNSSProfile(func(profile string) error {
 		args := []string{
 			"-V", "-d", profile,

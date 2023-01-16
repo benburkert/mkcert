@@ -54,13 +54,20 @@ func (s *Store) systemTrustFilename(ca *CA) string {
 func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	s.InitPlatform()
 
+	caPath := filepath.Join(s.CAROOT, ca.FileName)
+
 	if SystemTrustCommand == nil {
-		msg := fmt.Sprintf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.\n", NSSBrowsers)
-		msg += fmt.Sprintf("You can also manually install the root certificate at %q.", filepath.Join(s.CAROOT, ca.FileName))
-		return false, warnErr(msg)
+		return false, Error{
+			Warning: PlatformError{
+				Err: UnsupportedDistro,
+
+				NSSBrowsers: NSSBrowsers,
+				RootCA:      caPath,
+			},
+		}
 	}
 
-	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, ca.FileName))
+	cert, err := ioutil.ReadFile(caPath)
 	if err != nil {
 		return false, fatalErr(err, "failed to read root certificate")
 	}

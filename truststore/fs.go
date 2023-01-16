@@ -1,12 +1,15 @@
 package truststore
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
 	"sync"
 )
+
+var NoSudo = errors.New(`"sudo" is not available`)
 
 type CmdFS interface {
 	fs.StatFS
@@ -45,7 +48,7 @@ func (r *rootFS) SudoExec(cmd *exec.Cmd) (out []byte, err error) {
 	if _, serr := r.LookPath("sudo"); serr != nil {
 		defer func() {
 			r.sudoWarningOnce.Do(func() {
-				err = warnErr(`Warning: "sudo" is not available, and mkcert is not running as root. The (un)install operation might fail. ⚠️`+"\n%w", err)
+				err = Error{Fatal: err, Warning: NoSudo}
 			})
 		}()
 

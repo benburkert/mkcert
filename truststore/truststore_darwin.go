@@ -88,7 +88,7 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 		return false, fatalErr(err, "failed to parse trust settings")
 	}
 	if plistRoot["trustVersion"].(uint64) != 1 {
-		return false, fmt.Errorf("ERROR: unsupported trust settings version: %s", plistRoot["trustVersion"])
+		return false, fmt.Errorf("unsupported trust settings version: %s", plistRoot["trustVersion"])
 	}
 
 	rootSubjectASN1, err := asn1.Marshal(ca.Certificate.Subject.ToRDNSequence())
