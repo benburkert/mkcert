@@ -1,0 +1,4 @@
+#!/bin/sh
+
+exec roundup \
+  $(find test -type f -exec awk '/^#!.*roundup/{print FILENAME}{nextfile}' {} \;)
