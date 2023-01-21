@@ -58,8 +58,10 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 
 	if SystemTrustCommand == nil {
 		return false, Error{
+			Op: OpInstall,
+
 			Warning: PlatformError{
-				Err: UnsupportedDistro,
+				Err: ErrUnsupportedDistro,
 
 				NSSBrowsers: NSSBrowsers,
 				RootCA:      caPath,

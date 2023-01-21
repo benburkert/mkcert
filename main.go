@@ -307,11 +307,8 @@ func (m *mkcert) install() {
 		if logErr(m.CheckJava(m.ca)) {
 			log.Println("The local CA is already installed in Java's trust store! 👍")
 		} else {
-			if m.HasKeytool() {
-				logErr(m.InstallJava(m.ca))
+			if logErr(m.InstallJava(m.ca)) {
 				log.Println("The local CA is now installed in Java's trust store! ☕️")
-			} else {
-				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically installed in Java's trust store! ⚠️`)
 			}
 		}
 	}
@@ -323,13 +320,7 @@ func (m *mkcert) uninstall() {
 		logErr(m.UninstallNSS(m.ca))
 	}
 	if storeEnabled("java") && m.HasJava() {
-		if m.HasKeytool() {
-			logErr(m.UninstallJava(m.ca))
-		} else {
-			log.Print("")
-			log.Println(`Warning: "keytool" is not available, so the CA can't be automatically uninstalled from Java's trust store (if it was ever installed)! ⚠️`)
-			log.Print("")
-		}
+		logErr(m.UninstallJava(m.ca))
 	}
 
 	if storeEnabled("system") && logErr(m.UninstallPlatform(m.ca)) {
@@ -373,7 +364,7 @@ func logErr[T any](v T, err error) T {
 	var terr truststore.Error
 	if errors.As(err, &terr) {
 		if w := terr.Warning; w != nil {
-			logWarning(w)
+			logWarning(w, terr.Op)
 		}
 		return logErr(v, terr.Fatal)
 	}
@@ -383,31 +374,31 @@ func logErr[T any](v T, err error) T {
 	return v
 }
 
-func logWarning(err error) {
+func logWarning(err error, op truststore.Op) {
 	switch err := err.(type) {
 	case truststore.NSSError:
 		switch err.Err {
-		case truststore.NoCertutil:
-			switch err.Operation {
-			case "install":
+		case truststore.ErrNoCertutil:
+			switch op {
+			case truststore.OpInstall:
 				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, err.NSSBrowsers)
 				log.Printf(`Install "certutil" with "%s" and re-run "mkcert -install" 👈`, err.CertutilInstallHelp)
-			case "uninstall":
+			case truststore.OpUninstall:
 				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically uninstalled from %s (if it was ever installed)! ⚠️`, err.NSSBrowsers)
 				log.Printf(`You can install "certutil" with "%s" and re-run "mkcert -uninstall" 👈`, err.CertutilInstallHelp)
 			default:
 				panic("unhandled nss no certutil operation warning")
 			}
-		case truststore.NoNSS:
+		case truststore.ErrNoNSS:
 			log.Printf(`Note: %s support is not available on your platform. ℹ️`, err.NSSBrowsers)
-		case truststore.NoNSSDB:
+		case truststore.ErrNoNSSDB:
 			log.Printf("ERROR: no %s security databases found", err.NSSBrowsers)
 		default:
 			panic("unhandled nss warning")
 		}
 	case truststore.PlatformError:
 		switch err.Err {
-		case truststore.UnsupportedDistro:
+		case truststore.ErrUnsupportedDistro:
 			log.Printf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.", err.NSSBrowsers)
 			log.Printf("You can also manually install the root certificate at %q.", err.RootCA)
 		default:
@@ -415,7 +406,18 @@ func logWarning(err error) {
 		}
 	default:
 		switch err {
-		case truststore.NoSudo:
+		case truststore.ErrNoKeytool:
+			switch op {
+			case truststore.OpInstall:
+				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically installed in Java's trust store! ⚠️`)
+			case truststore.OpUninstall:
+				log.Print("")
+				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically uninstalled from Java's trust store (if it was ever installed)! ⚠️`)
+				log.Print("")
+			default:
+				panic("unhandled java no keytool operation warning")
+			}
+		case truststore.ErrNoSudo:
 			log.Println(`Warning: "sudo" is not available, and mkcert is not running as root. The (un)install operation might fail. ⚠️`)
 		default:
 			panic("unhandled warning")

@@ -103,6 +103,13 @@ func (s *Store) CheckJava(ca *CA) (bool, error) {
 }
 
 func (s *Store) InstallJava(ca *CA) (bool, error) {
+	if !s.HasKeytool() {
+		return false, Error{
+			Op:      OpInstall,
+			Warning: ErrNoKeytool,
+		}
+	}
+
 	args := []string{
 		"-importcert", "-noprompt",
 		"-keystore", cacertsPath,
@@ -118,6 +125,13 @@ func (s *Store) InstallJava(ca *CA) (bool, error) {
 }
 
 func (s *Store) UninstallJava(ca *CA) (bool, error) {
+	if !s.HasKeytool() {
+		return false, Error{
+			Op:      OpUninstall,
+			Warning: ErrNoKeytool,
+		}
+	}
+
 	args := []string{
 		"-delete",
 		"-alias", ca.UniqueName,

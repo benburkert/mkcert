@@ -6,7 +6,6 @@ package truststore
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,11 +14,6 @@ import (
 )
 
 var (
-	NoCertutil = errors.New("no certutil tooling")
-	NoNSS      = errors.New("no NSS browser")
-	NoNSSDB    = errors.New("no NSS database")
-	UnknownNSS = errors.New("unknown NSS install") // untested
-
 	hasNSS       bool
 	hasCertutil  bool
 	certutilPath string
@@ -40,16 +34,6 @@ var (
 		"C:\\Program Files\\Mozilla Firefox",
 	}
 )
-
-type NSSError struct {
-	Err error
-
-	CertutilInstallHelp string
-	NSSBrowsers         string
-	Operation           string
-}
-
-func (e NSSError) Error() string { return e.Err.Error() }
 
 var initNSSOnce sync.Once
 
@@ -115,22 +99,24 @@ func (s *Store) InstallNSS(ca *CA) (ok bool, err error) {
 	if !hasCertutil {
 		if CertutilInstallHelp == "" {
 			return false, Error{
+				Op: OpInstall,
+
 				Warning: NSSError{
-					Err: NoNSS,
+					Err: ErrNoNSS,
 
 					CertutilInstallHelp: CertutilInstallHelp,
 					NSSBrowsers:         NSSBrowsers,
-					Operation:           "install",
 				},
 			}
 		}
 		return false, Error{
+			Op: OpInstall,
+
 			Warning: NSSError{
-				Err: NoCertutil,
+				Err: ErrNoCertutil,
 
 				CertutilInstallHelp: CertutilInstallHelp,
 				NSSBrowsers:         NSSBrowsers,
-				Operation:           "install",
 			},
 		}
 	}
@@ -153,17 +139,18 @@ func (s *Store) InstallNSS(ca *CA) (ok bool, err error) {
 	}
 	if count == 0 {
 		return false, Error{
+			Op: OpInstall,
+
 			Warning: NSSError{
-				Err: NoNSSDB,
+				Err: ErrNoNSSDB,
 
 				CertutilInstallHelp: CertutilInstallHelp,
 				NSSBrowsers:         NSSBrowsers,
-				Operation:           "install",
 			},
 		}
 	}
 	if ok, _ := s.CheckNSS(ca); !ok {
-		return false, Error{Warning: UnknownNSS}
+		return false, Error{Warning: ErrUnknownNSS}
 	}
 	return true, nil
 }
@@ -172,22 +159,24 @@ func (s *Store) UninstallNSS(ca *CA) (bool, error) {
 	if !hasCertutil {
 		if CertutilInstallHelp == "" {
 			return false, Error{
+				Op: OpUninstall,
+
 				Warning: NSSError{
-					Err: NoNSS,
+					Err: ErrNoNSS,
 
 					CertutilInstallHelp: CertutilInstallHelp,
 					NSSBrowsers:         NSSBrowsers,
-					Operation:           "uninstall",
 				},
 			}
 		}
 		return false, Error{
+			Op: OpUninstall,
+
 			Warning: NSSError{
-				Err: NoCertutil,
+				Err: ErrNoCertutil,
 
 				CertutilInstallHelp: CertutilInstallHelp,
 				NSSBrowsers:         NSSBrowsers,
-				Operation:           "uninstall",
 			},
 		}
 	}
