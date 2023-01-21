@@ -1,30 +1,25 @@
-// Copyright 2018 The mkcert Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package truststore
 
 import (
 	"bytes"
 	"encoding/asn1"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"howett.net/plist"
 )
 
-var (
-	FirefoxProfiles     = []string{os.Getenv("HOME") + "/Library/Application Support/Firefox/Profiles/*"}
-	CertutilInstallHelp = "brew install nss"
-	NSSBrowsers         = "Firefox"
-)
-
 // https://github.com/golang/go/issues/24652#issuecomment-399826583
-var trustSettings []interface{}
-var _, _ = plist.Unmarshal(trustSettingsData, &trustSettings)
-var trustSettingsData = []byte(`
+var (
+	nssBrowsers = "Firefox"
+
+	trustSettings     []interface{}
+	_, _              = plist.Unmarshal(trustSettingsData, &trustSettings)
+	trustSettingsData = []byte(`
 <array>
 	<dict>
 		<key>kSecTrustSettingsPolicy</key>
@@ -48,14 +43,42 @@ var trustSettingsData = []byte(`
 	</dict>
 </array>
 `)
+)
 
-func (s *Store) InitPlatform() {}
+func certutilInstallHelp(_ CmdFS) string { return "brew install nss" }
 
-func (s *Store) InstallPlatform(ca *CA) (bool, error) {
+func firefoxProfiles(homeDir string) []string {
+	return []string{
+		filepath.Join(homeDir, "/Library/Application Support/Firefox/Profiles/*"),
+	}
+}
+
+type Platform struct {
+	HomeDir, RootDir string
+
+	DataFS fs.StatFS
+	SysFS  CmdFS
+
+	inito               sync.Once
+	nssBrowsers         string
+	certutilInstallHelp string
+	firefoxProfiles     []string
+}
+
+func (s *Platform) check() (bool, error) {
+	s.inito.Do(func() {
+		s.certutilInstallHelp = certutilInstallHelp(s.SysFS)
+		s.firefoxProfiles = firefoxProfiles(s.HomeDir)
+	})
+
+	return true, nil
+}
+
+func (s *Platform) installCA(ca *CA) (bool, error) {
 	args := []string{
 		"add-trusted-cert", "-d",
 		"-k", "/Library/Keychains/System.keychain",
-		filepath.Join(s.CAROOT, ca.FileName),
+		filepath.Join(s.RootDir, ca.FileName),
 	}
 	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security add-trusted-cert", out)
@@ -128,10 +151,10 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
+func (s *Platform) uninstallCA(ca *CA) (bool, error) {
 	args := []string{
 		"remove-trusted-cert",
-		"-d", filepath.Join(s.CAROOT, ca.FileName),
+		"-d", filepath.Join(s.RootDir, ca.FileName),
 	}
 	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security remove-trusted-cert", out)

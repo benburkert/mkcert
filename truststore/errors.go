@@ -18,7 +18,8 @@ var (
 type Op string
 
 const (
-	OpInstall   Op = "install"
+	OpCheck     Op = "check"
+	OpInstall      = "install"
 	OpSudo         = "sudo"
 	OpUninstall    = "uninstall"
 )

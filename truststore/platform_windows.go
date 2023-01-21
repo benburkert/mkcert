@@ -1,25 +1,15 @@
-// Copyright 2018 The mkcert Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package truststore
 
 import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"math/big"
-	"os"
 	"path/filepath"
 	"syscall"
 	"unsafe"
-)
-
-var (
-	FirefoxProfiles     = []string{os.Getenv("USERPROFILE") + "\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles"}
-	CertutilInstallHelp = "" // certutil unsupported on Windows
-	NSSBrowsers         = "Firefox"
 )
 
 var (
@@ -30,13 +20,34 @@ var (
 	procCertDuplicateCertificateContext  = modcrypt32.NewProc("CertDuplicateCertificateContext")
 	procCertEnumCertificatesInStore      = modcrypt32.NewProc("CertEnumCertificatesInStore")
 	procCertOpenSystemStoreW             = modcrypt32.NewProc("CertOpenSystemStoreW")
+
+	nssBrowsers = "Firefox"
 )
 
-func (s *Store) InitPlatform() {}
+func certutilInstallHelp(_ CmdFS) string {
+	return "" // certutil unsupported on Windows
+}
 
-func (s *Store) InstallPlatform(ca *CA) (bool, error) {
+func firefoxProfiles(homeDir string) []string {
+	return []string{
+		filepath.Join(homeDir, "\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles"),
+	}
+}
+
+type Platform struct {
+	HomeDir, RootDir string
+
+	DataFS fs.StatFS
+	SysFS  CmdFS
+}
+
+func (s *Platform) check() (bool, error) {
+	return true, nil
+}
+
+func (s *Platform) installCA(ca *CA) (bool, error) {
 	// Load cert
-	cert, err := ioutil.ReadFile(filepath.Join(s.CAROOT, ca.FileName))
+	cert, err := ioutil.ReadFile(filepath.Join(s.RootDir, ca.FileName))
 	if err == nil {
 		return false, fatalErr(err, "failed to read root certificate")
 	}
@@ -59,7 +70,7 @@ func (s *Store) InstallPlatform(ca *CA) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) UninstallPlatform(ca *CA) (bool, error) {
+func (s *Platform) uninstallCA(ca *CA) (bool, error) {
 	// We'll just remove all certs with the same serial number
 	// Open root store
 	store, err := openWindowsRootStore()

@@ -1,7 +1,3 @@
-// Copyright 2018 The mkcert Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 package truststore
 
 import (
@@ -11,7 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"hash"
-	"os"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -19,59 +15,49 @@ import (
 	"sync"
 )
 
-var (
-	hasJava    bool
-	hasKeytool bool
+type Java struct {
+	HomeDir, RootDir string
 
-	javaHome    string
-	cacertsPath string
+	JavaHomeDir string
+	StorePass   string
+
+	DataFS fs.StatFS
+	SysFS  CmdFS
+
+	inito       sync.Once
 	keytoolPath string
-	storePass   string = "changeit"
-)
+	cacertsPath string
+}
 
-var initJavaOnce sync.Once
-
-func (s *Store) InitJava() {
-	initJavaOnce.Do(func() {
+func (s *Java) init() {
+	s.inito.Do(func() {
+		keytoolCommand := "keytool"
 		if runtime.GOOS == "windows" {
-			keytoolPath = filepath.Join("bin", "keytool.exe")
-		} else {
-			keytoolPath = filepath.Join("bin", "keytool")
+			keytoolCommand = "keytool.exe"
 		}
 
-		if v := os.Getenv("JAVA_HOME"); v != "" {
-			hasJava = true
-			javaHome = v
+		if keytoolPath := filepath.Join(s.JavaHomeDir, "bin", keytoolCommand); binaryExists(s.SysFS, keytoolPath) {
+			s.keytoolPath = keytoolPath
+		}
 
-			if s.pathExists(filepath.Join(v, keytoolPath)) {
-				hasKeytool = true
-				keytoolPath = filepath.Join(v, keytoolPath)
-			}
+		if cacertsPath := filepath.Join(s.JavaHomeDir, "lib", "security", "cacerts"); pathExists(s.SysFS, cacertsPath) {
+			s.cacertsPath = cacertsPath
+		}
 
-			if s.pathExists(filepath.Join(v, "lib", "security", "cacerts")) {
-				cacertsPath = filepath.Join(v, "lib", "security", "cacerts")
-			}
-
-			if s.pathExists(filepath.Join(v, "jre", "lib", "security", "cacerts")) {
-				cacertsPath = filepath.Join(v, "jre", "lib", "security", "cacerts")
-			}
+		if cacertsPath := filepath.Join(s.JavaHomeDir, "jre", "lib", "security", "cacerts"); pathExists(s.SysFS, cacertsPath) {
+			s.cacertsPath = cacertsPath
 		}
 	})
 }
 
-func (s *Store) HasJava() bool {
-	s.InitJava()
-	return hasJava
-}
+func (s *Java) CheckCA(ca *CA) (bool, error) {
+	s.init()
 
-func (s *Store) HasKeytool() bool {
-	s.InitJava()
-	return hasKeytool
-}
-
-func (s *Store) CheckJava(ca *CA) (bool, error) {
-	if !hasKeytool {
-		return false, nil
+	if s.keytoolPath == "" {
+		return false, Error{
+			Op:      OpCheck,
+			Warning: ErrNoKeytool,
+		}
 	}
 
 	// exists returns true if the given x509.Certificate's fingerprint
@@ -84,11 +70,11 @@ func (s *Store) CheckJava(ca *CA) (bool, error) {
 
 	args := []string{
 		"-list",
-		"-keystore", cacertsPath,
-		"-storepass", storePass,
+		"-keystore", s.cacertsPath,
+		"-storepass", s.StorePass,
 	}
 
-	keytoolOutput, err := s.SysFS.Exec(s.SysFS.Command(keytoolPath, args...))
+	keytoolOutput, err := s.SysFS.Exec(s.SysFS.Command(s.keytoolPath, args...))
 	if err != nil {
 		return false, fatalCmdErr(err, "keytool -list", keytoolOutput)
 	}
@@ -102,8 +88,10 @@ func (s *Store) CheckJava(ca *CA) (bool, error) {
 	return exists(ca.Certificate, s1, keytoolOutput) || exists(ca.Certificate, s256, keytoolOutput), nil
 }
 
-func (s *Store) InstallJava(ca *CA) (bool, error) {
-	if !s.HasKeytool() {
+func (s *Java) InstallCA(ca *CA) (bool, error) {
+	s.init()
+
+	if s.keytoolPath == "" {
 		return false, Error{
 			Op:      OpInstall,
 			Warning: ErrNoKeytool,
@@ -112,20 +100,22 @@ func (s *Store) InstallJava(ca *CA) (bool, error) {
 
 	args := []string{
 		"-importcert", "-noprompt",
-		"-keystore", cacertsPath,
-		"-storepass", storePass,
-		"-file", filepath.Join(s.CAROOT, ca.FileName),
+		"-keystore", s.cacertsPath,
+		"-storepass", s.StorePass,
+		"-file", filepath.Join(s.RootDir, ca.FileName),
 		"-alias", ca.UniqueName,
 	}
 
-	if out, err := s.execKeytool(s.SysFS.Command(keytoolPath, args...)); err != nil {
+	if out, err := s.execKeytool(s.SysFS.Command(s.keytoolPath, args...)); err != nil {
 		return false, fatalCmdErr(err, "keytool -importcert", out)
 	}
 	return true, nil
 }
 
-func (s *Store) UninstallJava(ca *CA) (bool, error) {
-	if !s.HasKeytool() {
+func (s *Java) UninstallCA(ca *CA) (bool, error) {
+	s.init()
+
+	if s.keytoolPath == "" {
 		return false, Error{
 			Op:      OpUninstall,
 			Warning: ErrNoKeytool,
@@ -135,10 +125,10 @@ func (s *Store) UninstallJava(ca *CA) (bool, error) {
 	args := []string{
 		"-delete",
 		"-alias", ca.UniqueName,
-		"-keystore", cacertsPath,
-		"-storepass", storePass,
+		"-keystore", s.cacertsPath,
+		"-storepass", s.StorePass,
 	}
-	out, err := s.execKeytool(s.SysFS.Command(keytoolPath, args...))
+	out, err := s.execKeytool(s.SysFS.Command(s.keytoolPath, args...))
 	if bytes.Contains(out, []byte("does not exist")) {
 		return false, nil // cert didn't exist
 	}
@@ -150,12 +140,12 @@ func (s *Store) UninstallJava(ca *CA) (bool, error) {
 
 // execKeytool will execute a "keytool" command and if needed re-execute
 // the command with commandWithSudo to work around file permissions.
-func (s *Store) execKeytool(cmd *exec.Cmd) ([]byte, error) {
+func (s *Java) execKeytool(cmd *exec.Cmd) ([]byte, error) {
 	out, err := s.SysFS.Exec(cmd)
 	if err != nil && bytes.Contains(out, []byte("java.io.FileNotFoundException")) && runtime.GOOS != "windows" {
 		cmd = s.SysFS.Command(cmd.Args[0], cmd.Args[1:]...)
 		cmd.Env = []string{
-			"JAVA_HOME=" + javaHome,
+			"JAVA_HOME=" + s.JavaHomeDir,
 		}
 		return s.SysFS.SudoExec(cmd)
 	}

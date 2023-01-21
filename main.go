@@ -16,6 +16,7 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -144,10 +145,46 @@ func main() {
 	}
 
 	rootFS := truststore.RootFS()
+	rootDir := getCAROOT()
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalln("ERROR: can't get user's home directory: " + err.Error())
+	}
+
+	var javaStore *truststore.Java
+	if javaHomeDir := os.Getenv("JAVA_HOME"); javaHomeDir != "" {
+		javaStore = &truststore.Java{
+			RootDir:     rootDir,
+			HomeDir:     homeDir,
+			JavaHomeDir: javaHomeDir,
+			StorePass:   "changeit",
+
+			DataFS: rootFS,
+			SysFS:  rootFS,
+		}
+	}
 
 	(&mkcert{
 		Store: &truststore.Store{
-			CAROOT: getCAROOT(),
+			CAROOT: rootDir,
+			HOME:   homeDir,
+
+			DataFS: rootFS,
+			SysFS:  rootFS,
+		},
+
+		Java: javaStore,
+		NSS: &truststore.NSS{
+			RootDir: rootDir,
+			HomeDir: homeDir,
+
+			DataFS: rootFS,
+			SysFS:  rootFS,
+		},
+		Platform: &truststore.Platform{
+			RootDir: rootDir,
+			HomeDir: homeDir,
 
 			DataFS: rootFS,
 			SysFS:  rootFS,
@@ -164,6 +201,10 @@ const rootKeyName = "rootCA-key.pem"
 
 type mkcert struct {
 	*truststore.Store
+
+	Java     *truststore.Java
+	NSS      *truststore.NSS
+	Platform *truststore.Platform
 
 	installMode, uninstallMode bool
 	pkcs12, ecdsa, client      bool
@@ -205,15 +246,14 @@ func (m *mkcert) Run(args []string) {
 		return
 	} else {
 		var warning bool
-		if storeEnabled("system") && !m.checkPlatform() {
+		if storeEnabled("system") && logErr(m.Platform.Check()) && !m.checkPlatform() {
 			warning = true
 			log.Println("Note: the local CA is not installed in the system trust store.")
 		}
-		if storeEnabled("nss") && m.HasNSS() && truststore.CertutilInstallHelp != "" && !logErr(m.CheckNSS(m.ca)) {
+		if storeEnabled("nss") && ignoreErr(m.NSS.Check()) && !logErr(m.NSS.CheckCA(m.ca)) {
 			warning = true
-			log.Printf("Note: the local CA is not installed in the %s trust store.", truststore.NSSBrowsers)
 		}
-		if storeEnabled("java") && m.HasJava() && !logErr(m.CheckJava(m.ca)) {
+		if storeEnabled("java") && m.Java != nil && !logErr(m.Java.CheckCA(m.ca)) {
 			warning = true
 			log.Println("Note: the local CA is not installed in the Java trust store.")
 		}
@@ -288,26 +328,26 @@ func (m *mkcert) install() {
 		if m.checkPlatform() {
 			log.Print("The local CA is already installed in the system trust store! 👍")
 		} else {
-			if logErr(m.InstallPlatform(m.ca)) {
+			if logErr(m.Platform.InstallCA(m.ca)) {
 				log.Print("The local CA is now installed in the system trust store! ⚡️")
 			}
 			m.ignoreCheckFailure = true // TODO: replace with a check for a successful install
 		}
 	}
-	if storeEnabled("nss") && m.HasNSS() {
-		if logErr(m.CheckNSS(m.ca)) {
-			log.Printf("The local CA is already installed in the %s trust store! 👍", truststore.NSSBrowsers)
+	if storeEnabled("nss") && ignoreErr(m.NSS.Check()) {
+		if logErr(m.NSS.CheckCA(m.ca)) {
+			log.Printf("The local CA is already installed in the %s trust store! 👍", m.NSS.Browsers())
 		} else {
-			if logErr(m.InstallNSS(m.ca)) {
-				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", truststore.NSSBrowsers)
+			if logErr(m.NSS.InstallCA(m.ca)) {
+				log.Printf("The local CA is now installed in the %s trust store (requires browser restart)! 🦊", m.NSS.Browsers())
 			}
 		}
 	}
-	if storeEnabled("java") && m.HasJava() {
-		if logErr(m.CheckJava(m.ca)) {
+	if storeEnabled("java") && m.Java != nil {
+		if ignoreErr(m.Java.CheckCA(m.ca)) {
 			log.Println("The local CA is already installed in Java's trust store! 👍")
 		} else {
-			if logErr(m.InstallJava(m.ca)) {
+			if logErr(m.Java.InstallCA(m.ca)) {
 				log.Println("The local CA is now installed in Java's trust store! ☕️")
 			}
 		}
@@ -316,18 +356,18 @@ func (m *mkcert) install() {
 }
 
 func (m *mkcert) uninstall() {
-	if storeEnabled("nss") && m.HasNSS() {
-		logErr(m.UninstallNSS(m.ca))
+	if storeEnabled("nss") && ignoreErr(m.NSS.Check()) {
+		logErr(m.NSS.UninstallCA(m.ca))
 	}
-	if storeEnabled("java") && m.HasJava() {
-		logErr(m.UninstallJava(m.ca))
+	if storeEnabled("java") && m.Java != nil {
+		logErr(m.Java.UninstallCA(m.ca))
 	}
 
-	if storeEnabled("system") && logErr(m.UninstallPlatform(m.ca)) {
+	if storeEnabled("system") && logErr(m.Platform.UninstallCA(m.ca)) {
 		log.Print("The local CA is now uninstalled from the system trust store(s)! 👋")
 		log.Print("")
-	} else if storeEnabled("nss") && m.HasCertutil() {
-		log.Printf("The local CA is now uninstalled from the %s trust store(s)! 👋", truststore.NSSBrowsers)
+	} else if storeEnabled("nss") && ignoreErr(m.NSS.Check()) {
+		log.Printf("The local CA is now uninstalled from the %s trust store(s)! 👋", m.NSS.Browsers())
 		log.Print("")
 	}
 }
@@ -375,10 +415,19 @@ func logErr[T any](v T, err error) T {
 }
 
 func logWarning(err error, op truststore.Op) {
+	var exitErr *exec.ExitError
+
 	switch err := err.(type) {
 	case truststore.NSSError:
-		switch err.Err {
-		case truststore.ErrNoCertutil:
+		switch {
+		case errors.As(err.Err, &exitErr):
+			switch op {
+			case truststore.OpCheck:
+				log.Printf("Note: the local CA is not installed in the %s trust store.", err.NSSBrowsers)
+			default:
+				panic("unhandled nss exit error operation warning")
+			}
+		case errors.Is(err.Err, truststore.ErrNoCertutil):
 			switch op {
 			case truststore.OpInstall:
 				log.Printf(`Warning: "certutil" is not available, so the CA can't be automatically installed in %s! ⚠️`, err.NSSBrowsers)
@@ -389,24 +438,24 @@ func logWarning(err error, op truststore.Op) {
 			default:
 				panic("unhandled nss no certutil operation warning")
 			}
-		case truststore.ErrNoNSS:
+		case errors.Is(err.Err, truststore.ErrNoNSS):
 			log.Printf(`Note: %s support is not available on your platform. ℹ️`, err.NSSBrowsers)
-		case truststore.ErrNoNSSDB:
+		case errors.Is(err.Err, truststore.ErrNoNSSDB):
 			log.Printf("ERROR: no %s security databases found", err.NSSBrowsers)
 		default:
 			panic("unhandled nss warning")
 		}
 	case truststore.PlatformError:
-		switch err.Err {
-		case truststore.ErrUnsupportedDistro:
+		switch {
+		case errors.Is(err.Err, truststore.ErrUnsupportedDistro):
 			log.Printf("Installing to the system store is not yet supported on this Linux 😣 but %s will still work.", err.NSSBrowsers)
 			log.Printf("You can also manually install the root certificate at %q.", err.RootCA)
 		default:
 			panic("unhandled platform warning")
 		}
 	default:
-		switch err {
-		case truststore.ErrNoKeytool:
+		switch {
+		case errors.Is(err, truststore.ErrNoKeytool):
 			switch op {
 			case truststore.OpInstall:
 				log.Println(`Warning: "keytool" is not available, so the CA can't be automatically installed in Java's trust store! ⚠️`)
@@ -417,13 +466,15 @@ func logWarning(err error, op truststore.Op) {
 			default:
 				panic("unhandled java no keytool operation warning")
 			}
-		case truststore.ErrNoSudo:
+		case errors.Is(err, truststore.ErrNoSudo):
 			log.Println(`Warning: "sudo" is not available, and mkcert is not running as root. The (un)install operation might fail. ⚠️`)
 		default:
 			panic("unhandled warning")
 		}
 	}
 }
+
+func ignoreErr[T any](v T, err error) T { return v }
 
 func caUniqueName(caCert *x509.Certificate) string {
 	return "mkcert development CA " + caCert.SerialNumber.String()
