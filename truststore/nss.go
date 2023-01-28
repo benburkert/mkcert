@@ -11,7 +11,7 @@ import (
 )
 
 type NSS struct {
-	HomeDir, RootDir string
+	HomeDir string
 
 	DataFS fs.StatFS
 	SysFS  CmdFS
@@ -171,7 +171,7 @@ func (s *NSS) InstallCA(ca *CA) (installed bool, err error) {
 			"-A", "-d", profile,
 			"-t", "C,,",
 			"-n", ca.UniqueName,
-			"-i", filepath.Join(s.RootDir, ca.FileName),
+			"-i", ca.FilePath,
 		}
 
 		if out, err := s.execCertutil(s.certutilPath, args...); err != nil {

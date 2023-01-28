@@ -12,7 +12,7 @@ import (
 type CA struct {
 	*x509.Certificate
 
-	FileName   string
+	FilePath   string
 	UniqueName string
 }
 

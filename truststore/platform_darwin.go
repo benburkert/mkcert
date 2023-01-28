@@ -54,7 +54,7 @@ func firefoxProfiles(homeDir string) []string {
 }
 
 type Platform struct {
-	HomeDir, RootDir string
+	HomeDir string
 
 	DataFS fs.StatFS
 	SysFS  CmdFS
@@ -78,7 +78,7 @@ func (s *Platform) installCA(ca *CA) (bool, error) {
 	args := []string{
 		"add-trusted-cert", "-d",
 		"-k", "/Library/Keychains/System.keychain",
-		filepath.Join(s.RootDir, ca.FileName),
+		ca.FilePath,
 	}
 	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security add-trusted-cert", out)
@@ -154,7 +154,7 @@ func (s *Platform) installCA(ca *CA) (bool, error) {
 func (s *Platform) uninstallCA(ca *CA) (bool, error) {
 	args := []string{
 		"remove-trusted-cert",
-		"-d", filepath.Join(s.RootDir, ca.FileName),
+		"-d", ca.FilePath,
 	}
 	if out, err := s.SysFS.SudoExec(s.SysFS.Command("security", args...)); err != nil {
 		return false, fatalCmdErr(err, "security remove-trusted-cert", out)

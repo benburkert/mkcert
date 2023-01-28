@@ -16,7 +16,7 @@ import (
 )
 
 type Java struct {
-	HomeDir, RootDir string
+	HomeDir string
 
 	JavaHomeDir string
 	StorePass   string
@@ -102,7 +102,7 @@ func (s *Java) InstallCA(ca *CA) (bool, error) {
 		"-importcert", "-noprompt",
 		"-keystore", s.cacertsPath,
 		"-storepass", s.StorePass,
-		"-file", filepath.Join(s.RootDir, ca.FileName),
+		"-file", ca.FilePath,
 		"-alias", ca.UniqueName,
 	}
 

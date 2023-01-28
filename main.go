@@ -155,7 +155,6 @@ func main() {
 	var javaStore *truststore.Java
 	if javaHomeDir := os.Getenv("JAVA_HOME"); javaHomeDir != "" {
 		javaStore = &truststore.Java{
-			RootDir:     rootDir,
 			HomeDir:     homeDir,
 			JavaHomeDir: javaHomeDir,
 			StorePass:   "changeit",
@@ -176,14 +175,12 @@ func main() {
 
 		Java: javaStore,
 		NSS: &truststore.NSS{
-			RootDir: rootDir,
 			HomeDir: homeDir,
 
 			DataFS: rootFS,
 			SysFS:  rootFS,
 		},
 		Platform: &truststore.Platform{
-			RootDir: rootDir,
 			HomeDir: homeDir,
 
 			DataFS: rootFS,
@@ -232,7 +229,7 @@ func (m *mkcert) Run(args []string) {
 
 	m.ca = &truststore.CA{
 		Certificate: m.caCert,
-		FileName:    rootName,
+		FilePath:    filepath.Join(m.CAROOT, rootName),
 		UniqueName:  caUniqueName(m.caCert),
 	}
 
